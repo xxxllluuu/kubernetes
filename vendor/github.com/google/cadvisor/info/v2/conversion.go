@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/google/cadvisor/info/v1"
+	"k8s.io/klog"
 )
 
 func machineFsStatsFromV1(fsStats []v1.FsStats) []MachineFsStats {
@@ -70,7 +70,7 @@ func MachineStatsFromV1(cont *v1.ContainerInfo) []MachineStats {
 			stat.Cpu = &val.Cpu
 			cpuInst, err := InstCpuStats(last, val)
 			if err != nil {
-				glog.Warningf("Could not get instant cpu stats: %v", err)
+				klog.Warningf("Could not get instant cpu stats: %v", err)
 			} else {
 				stat.CpuInst = cpuInst
 			}
@@ -107,7 +107,7 @@ func ContainerStatsFromV1(containerName string, spec *v1.ContainerSpec, stats []
 			stat.Cpu = &val.Cpu
 			cpuInst, err := InstCpuStats(last, val)
 			if err != nil {
-				glog.Warningf("Could not get instant cpu stats: %v", err)
+				klog.Warningf("Could not get instant cpu stats: %v", err)
 			} else {
 				stat.CpuInst = cpuInst
 			}
@@ -124,6 +124,9 @@ func ContainerStatsFromV1(containerName string, spec *v1.ContainerSpec, stats []
 				Interfaces: val.Network.Interfaces,
 			}
 		}
+		if spec.HasProcesses {
+			stat.Processes = &val.Processes
+		}
 		if spec.HasFilesystem {
 			if len(val.Filesystem) == 1 {
 				stat.Filesystem = &FilesystemStats{
@@ -133,7 +136,7 @@ func ContainerStatsFromV1(containerName string, spec *v1.ContainerSpec, stats []
 				}
 			} else if len(val.Filesystem) > 1 && containerName != "/" {
 				// Cannot handle multiple devices per container.
-				glog.V(4).Infof("failed to handle multiple devices for container %s. Skipping Filesystem stats", containerName)
+				klog.V(4).Infof("failed to handle multiple devices for container %s. Skipping Filesystem stats", containerName)
 			}
 		}
 		if spec.HasDiskIo {
@@ -141,6 +144,9 @@ func ContainerStatsFromV1(containerName string, spec *v1.ContainerSpec, stats []
 		}
 		if spec.HasCustomMetrics {
 			stat.CustomMetrics = val.CustomMetrics
+		}
+		if len(val.Accelerators) > 0 {
+			stat.Accelerators = val.Accelerators
 		}
 		// TODO(rjnagal): Handle load stats.
 		newStats = append(newStats, stat)
@@ -165,7 +171,7 @@ func DeprecatedStatsFromV1(cont *v1.ContainerInfo) []DeprecatedContainerStats {
 			stat.Cpu = val.Cpu
 			cpuInst, err := InstCpuStats(last, val)
 			if err != nil {
-				glog.Warningf("Could not get instant cpu stats: %v", err)
+				klog.Warningf("Could not get instant cpu stats: %v", err)
 			} else {
 				stat.CpuInst = cpuInst
 			}
@@ -176,6 +182,9 @@ func DeprecatedStatsFromV1(cont *v1.ContainerInfo) []DeprecatedContainerStats {
 		}
 		if stat.HasNetwork {
 			stat.Network.Interfaces = val.Network.Interfaces
+		}
+		if stat.HasProcesses {
+			stat.Processes = val.Processes
 		}
 		if stat.HasFilesystem {
 			stat.Filesystem = val.Filesystem
@@ -203,9 +212,6 @@ func InstCpuStats(last, cur *v1.ContainerStats) (*CpuInstStats, error) {
 		return nil, fmt.Errorf("different number of cpus")
 	}
 	timeDelta := cur.Timestamp.Sub(last.Timestamp)
-	if timeDelta <= 100*time.Millisecond {
-		return nil, fmt.Errorf("time delta unexpectedly small")
-	}
 	// Nanoseconds to gain precision and avoid having zero seconds if the
 	// difference between the timestamps is just under a second
 	timeDeltaNs := uint64(timeDelta.Nanoseconds())
@@ -255,6 +261,7 @@ func ContainerSpecFromV1(specV1 *v1.ContainerSpec, aliases []string, namespace s
 		HasMemory:        specV1.HasMemory,
 		HasFilesystem:    specV1.HasFilesystem,
 		HasNetwork:       specV1.HasNetwork,
+		HasProcesses:     specV1.HasProcesses,
 		HasDiskIo:        specV1.HasDiskIo,
 		HasCustomMetrics: specV1.HasCustomMetrics,
 		Image:            specV1.Image,

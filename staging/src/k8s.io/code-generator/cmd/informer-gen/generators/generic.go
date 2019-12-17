@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	clientgentypes "k8s.io/code-generator/cmd/client-gen/types"
+	codegennamer "k8s.io/code-generator/pkg/namer"
 	"k8s.io/gengo/generator"
 	"k8s.io/gengo/namer"
 	"k8s.io/gengo/types"
@@ -33,6 +34,8 @@ type genericGenerator struct {
 	outputPackage        string
 	imports              namer.ImportTracker
 	groupVersions        map[string]clientgentypes.GroupVersions
+	groupGoNames         map[string]string
+	pluralExceptions     map[string]string
 	typesForGroupVersion map[clientgentypes.GroupVersion][]*types.Type
 	filtered             bool
 }
@@ -48,13 +51,11 @@ func (g *genericGenerator) Filter(c *generator.Context, t *types.Type) bool {
 }
 
 func (g *genericGenerator) Namers(c *generator.Context) namer.NameSystems {
-	pluralExceptions := map[string]string{
-		"Endpoints": "Endpoints",
-	}
 	return namer.NameSystems{
 		"raw":                namer.NewRawNamer(g.outputPackage, g.imports),
-		"allLowercasePlural": namer.NewAllLowercasePluralNamer(pluralExceptions),
-		"publicPlural":       namer.NewPublicPluralNamer(pluralExceptions),
+		"allLowercasePlural": namer.NewAllLowercasePluralNamer(g.pluralExceptions),
+		"publicPlural":       namer.NewPublicPluralNamer(g.pluralExceptions),
+		"resource":           codegennamer.NewTagOverrideNamer("resourceName", namer.NewAllLowercasePluralNamer(g.pluralExceptions)),
 	}
 }
 
@@ -65,8 +66,9 @@ func (g *genericGenerator) Imports(c *generator.Context) (imports []string) {
 }
 
 type group struct {
-	Name     string
-	Versions []*version
+	GroupGoName string
+	Name        string
+	Versions    []*version
 }
 
 type groupSort []group
@@ -77,6 +79,7 @@ func (g groupSort) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
 
 type version struct {
 	Name      string
+	GoName    string
 	Resources []*types.Type
 }
 
@@ -95,18 +98,22 @@ func (g *genericGenerator) GenerateType(c *generator.Context, t *types.Type, w i
 	schemeGVs := make(map[*version]*types.Type)
 
 	orderer := namer.Orderer{Namer: namer.NewPrivateNamer(0)}
-	for _, groupVersions := range g.groupVersions {
+	for groupPackageName, groupVersions := range g.groupVersions {
 		group := group{
-			Name:     namer.IC(groupVersions.Group.NonEmpty()),
-			Versions: []*version{},
+			GroupGoName: g.groupGoNames[groupPackageName],
+			Name:        groupVersions.Group.NonEmpty(),
+			Versions:    []*version{},
 		}
 		for _, v := range groupVersions.Versions {
-			gv := clientgentypes.GroupVersion{Group: groupVersions.Group, Version: v}
+			gv := clientgentypes.GroupVersion{Group: groupVersions.Group, Version: v.Version}
 			version := &version{
-				Name:      namer.IC(v.NonEmpty()),
+				Name:      v.Version.NonEmpty(),
+				GoName:    namer.IC(v.Version.NonEmpty()),
 				Resources: orderer.OrderTypes(g.typesForGroupVersion[gv]),
 			}
-			schemeGVs[version] = c.Universe.Variable(types.Name{Package: g.typesForGroupVersion[gv][0].Name.Package, Name: "SchemeGroupVersion"})
+			func() {
+				schemeGVs[version] = c.Universe.Variable(types.Name{Package: g.typesForGroupVersion[gv][0].Name.Package, Name: "SchemeGroupVersion"})
+			}()
 			group.Versions = append(group.Versions, version)
 		}
 		sort.Sort(versionSort(group.Versions))
@@ -159,12 +166,12 @@ var forResource = `
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource {{.schemaGroupVersionResource|raw}}) (GenericInformer, error) {
 	switch resource {
-		{{range $group := .groups -}}
+		{{range $group := .groups -}}{{$GroupGoName := .GroupGoName -}}
 			{{range $version := .Versions -}}
-		// Group={{$group.Name}}, Version={{.Name}}
+	// Group={{$group.Name}}, Version={{.Name}}
 				{{range .Resources -}}
-	case {{index $.schemeGVs $version|raw}}.WithResource("{{.|allLowercasePlural}}"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.{{$group.Name}}().{{$version.Name}}().{{.|publicPlural}}().Informer()}, nil
+	case {{index $.schemeGVs $version|raw}}.WithResource("{{.|resource}}"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.{{$GroupGoName}}().{{$version.GoName}}().{{.|publicPlural}}().Informer()}, nil
 				{{end}}
 			{{end}}
 		{{end -}}

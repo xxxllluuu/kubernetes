@@ -6,6 +6,8 @@ go_library(
         "keep_alive.go",
         "manager.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/vmware/govmomi/session",
+    importpath = "github.com/vmware/govmomi/session",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/vmware/govmomi/property:go_default_library",

@@ -10,6 +10,8 @@ go_library(
         "main.go",
         "reader.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/googleapis/gnostic/compiler",
+    importpath = "github.com/googleapis/gnostic/compiler",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/golang/protobuf/proto:go_default_library",

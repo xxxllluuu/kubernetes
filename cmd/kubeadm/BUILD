@@ -5,24 +5,23 @@ load(
     "go_binary",
     "go_library",
 )
-load("//pkg/version:def.bzl", "version_x_defs")
+load("//staging/src/k8s.io/component-base/version:def.bzl", "version_x_defs")
 
 go_binary(
     name = "kubeadm",
-    gc_linkopts = [
-        "-linkmode",
-        "external",
-        "-extldflags",
-        "-static",
-    ],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
+    pure = "on",
     x_defs = version_x_defs(),
 )
 
 go_library(
     name = "go_default_library",
     srcs = ["kubeadm.go"],
-    deps = ["//cmd/kubeadm/app:go_default_library"],
+    importpath = "k8s.io/kubernetes/cmd/kubeadm",
+    deps = [
+        "//cmd/kubeadm/app:go_default_library",
+        "//cmd/kubeadm/app/util:go_default_library",
+    ],
 )
 
 filegroup(

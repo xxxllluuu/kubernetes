@@ -1,12 +1,5 @@
 package(default_visibility = ["//visibility:public"])
 
-load(
-    "@io_bazel_rules_go//go:def.bzl",
-    "go_binary",
-    "go_library",
-    "go_test",
-)
-
 filegroup(
     name = "package-srcs",
     srcs = glob(["**"]),
@@ -19,7 +12,7 @@ filegroup(
     srcs = [
         ":package-srcs",
         "//hack/boilerplate:all-srcs",
-        "//hack/cmd/teststale:all-srcs",
+        "//hack/conformance:all-srcs",
         "//hack/e2e-internal:all-srcs",
         "//hack/lib:all-srcs",
         "//hack/make-rules:all-srcs",
@@ -55,19 +48,9 @@ test_suite(
     ],
 )
 
-go_binary(
-    name = "hack",
-    library = ":go_default_library",
-)
-
-go_test(
-    name = "go_default_test",
-    srcs = ["e2e_test.go"],
-    data = glob(["testdata/**"]),
-    library = ":go_default_library",
-)
-
-go_library(
-    name = "go_default_library",
-    srcs = ["e2e.go"],
+sh_binary(
+    name = "update-mirror",
+    srcs = ["update-workspace-mirror.sh"],
+    args = ["$(location @workspace_urls//:urls.txt)"],
+    data = ["@workspace_urls//:urls.txt"],
 )

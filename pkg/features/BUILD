@@ -8,10 +8,13 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["kube_features.go"],
+    importpath = "k8s.io/kubernetes/pkg/features",
     deps = [
-        "//vendor/k8s.io/apiextensions-apiserver/pkg/features:go_default_library",
-        "//vendor/k8s.io/apiserver/pkg/features:go_default_library",
-        "//vendor/k8s.io/apiserver/pkg/util/feature:go_default_library",
+        "//staging/src/k8s.io/apiextensions-apiserver/pkg/features:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/runtime:go_default_library",
+        "//staging/src/k8s.io/apiserver/pkg/features:go_default_library",
+        "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
+        "//staging/src/k8s.io/component-base/featuregate:go_default_library",
     ],
 )
 

@@ -6,6 +6,8 @@ go_library(
         "bipartitegraph.go",
         "bipartitegraphmatching.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/gomega/matchers/support/goraph/bipartitegraph",
+    importpath = "github.com/onsi/gomega/matchers/support/goraph/bipartitegraph",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/onsi/gomega/matchers/support/goraph/edge:go_default_library",

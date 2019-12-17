@@ -5,8 +5,12 @@ go_library(
     srcs = [
         "api.go",
         "customizations.go",
+        "doc.go",
+        "errors.go",
         "service.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/aws/aws-sdk-go/service/sts",
+    importpath = "github.com/aws/aws-sdk-go/service/sts",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/aws/aws-sdk-go/aws:go_default_library",

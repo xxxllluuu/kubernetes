@@ -8,7 +8,8 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["fuzzer.go"],
-    deps = ["//vendor/k8s.io/apimachinery/pkg/runtime/serializer:go_default_library"],
+    importpath = "k8s.io/kubernetes/pkg/apis/imagepolicy/fuzzer",
+    deps = ["//staging/src/k8s.io/apimachinery/pkg/runtime/serializer:go_default_library"],
 )
 
 filegroup(

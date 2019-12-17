@@ -24,13 +24,15 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/generic"
-	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
-	"k8s.io/kubernetes/pkg/api"
+	genericregistrytest "k8s.io/apiserver/pkg/registry/generic/testing"
+	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/settings"
+	_ "k8s.io/kubernetes/pkg/apis/settings/install"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 )
 
-func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
+func newStorage(t *testing.T) (*REST, *etcd3testing.EtcdTestServer) {
 	etcdStorage, server := registrytest.NewEtcdStorage(t, settings.GroupName)
 	restOptions := generic.RESTOptions{
 		StorageConfig:           etcdStorage,
@@ -38,7 +40,11 @@ func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
 		DeleteCollectionWorkers: 1,
 		ResourcePrefix:          "podpresets",
 	}
-	return NewREST(restOptions), server
+	rest, err := NewREST(restOptions)
+	if err != nil {
+		t.Fatalf("unexpected error from REST storage: %v", err)
+	}
+	return rest, server
 }
 
 func validNewPodPreset(namespace string) *settings.PodPreset {
@@ -102,7 +108,7 @@ func TestCreate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	invalidPodPreset := validNewPodPreset(test.TestNamespace())
 	invalidPodPreset.Spec.VolumeMounts[0].Name = "/cache/VolumeMounts"
 	test.TestCreate(
@@ -116,7 +122,7 @@ func TestUpdate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestUpdate(
 		// valid
 		validNewPodPreset(test.TestNamespace()),
@@ -133,7 +139,7 @@ func TestDelete(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestDelete(validNewPodPreset(test.TestNamespace()))
 }
 
@@ -141,7 +147,7 @@ func TestGet(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestGet(validNewPodPreset(test.TestNamespace()))
 }
 
@@ -149,7 +155,7 @@ func TestList(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestList(validNewPodPreset(test.TestNamespace()))
 }
 
@@ -157,7 +163,7 @@ func TestWatch(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestWatch(
 		validNewPodPreset(test.TestNamespace()),
 		// matching labels

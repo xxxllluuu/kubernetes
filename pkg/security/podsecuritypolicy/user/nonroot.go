@@ -17,18 +17,16 @@ limitations under the License.
 package user
 
 import (
-	"fmt"
-
+	policy "k8s.io/api/policy/v1beta1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apis/extensions"
+	api "k8s.io/kubernetes/pkg/apis/core"
 )
 
 type nonRoot struct{}
 
 var _ RunAsUserStrategy = &nonRoot{}
 
-func NewRunAsNonRoot(options *extensions.RunAsUserStrategyOptions) (RunAsUserStrategy, error) {
+func NewRunAsNonRoot(options *policy.RunAsUserStrategyOptions) (RunAsUserStrategy, error) {
 	return &nonRoot{}, nil
 }
 
@@ -43,22 +41,18 @@ func (s *nonRoot) Generate(pod *api.Pod, container *api.Container) (*int64, erro
 // or if the UID is set it is not root.  Validation will fail if RunAsNonRoot is set to false.
 // In order to work properly this assumes that the kubelet performs a final check on runAsUser
 // or the image UID when runAsUser is nil.
-func (s *nonRoot) Validate(pod *api.Pod, container *api.Container) field.ErrorList {
+func (s *nonRoot) Validate(scPath *field.Path, _ *api.Pod, _ *api.Container, runAsNonRoot *bool, runAsUser *int64) field.ErrorList {
 	allErrs := field.ErrorList{}
-	securityContextPath := field.NewPath("securityContext")
-	if container.SecurityContext == nil {
-		detail := fmt.Sprintf("unable to validate nil security context for container %s", container.Name)
-		allErrs = append(allErrs, field.Invalid(securityContextPath, container.SecurityContext, detail))
+	if runAsNonRoot == nil && runAsUser == nil {
+		allErrs = append(allErrs, field.Required(scPath.Child("runAsNonRoot"), "must be true"))
 		return allErrs
 	}
-	if container.SecurityContext.RunAsNonRoot != nil && *container.SecurityContext.RunAsNonRoot == false {
-		detail := fmt.Sprintf("RunAsNonRoot must be true for container %s", container.Name)
-		allErrs = append(allErrs, field.Invalid(securityContextPath.Child("runAsNonRoot"), *container.SecurityContext.RunAsNonRoot, detail))
+	if runAsNonRoot != nil && *runAsNonRoot == false {
+		allErrs = append(allErrs, field.Invalid(scPath.Child("runAsNonRoot"), *runAsNonRoot, "must be true"))
 		return allErrs
 	}
-	if container.SecurityContext.RunAsUser != nil && *container.SecurityContext.RunAsUser == 0 {
-		detail := fmt.Sprintf("running with the root UID is forbidden by the pod security policy for container %s", container.Name)
-		allErrs = append(allErrs, field.Invalid(securityContextPath.Child("runAsUser"), *container.SecurityContext.RunAsUser, detail))
+	if runAsUser != nil && *runAsUser == 0 {
+		allErrs = append(allErrs, field.Invalid(scPath.Child("runAsUser"), *runAsUser, "running with the root UID is forbidden"))
 		return allErrs
 	}
 	return allErrs

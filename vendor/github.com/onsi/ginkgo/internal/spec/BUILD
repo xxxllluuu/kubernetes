@@ -6,6 +6,8 @@ go_library(
         "spec.go",
         "specs.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/ginkgo/internal/spec",
+    importpath = "github.com/onsi/ginkgo/internal/spec",
     visibility = ["//vendor/github.com/onsi/ginkgo:__subpackages__"],
     deps = [
         "//vendor/github.com/onsi/ginkgo/internal/containernode:go_default_library",

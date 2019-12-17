@@ -8,7 +8,8 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["helpers.go"],
-    deps = ["//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library"],
+    importpath = "k8s.io/kubernetes/pkg/apis/storage/v1beta1/util",
+    deps = ["//staging/src/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library"],
 )
 
 filegroup(

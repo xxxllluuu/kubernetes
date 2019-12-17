@@ -4,7 +4,7 @@
 - A set of Kubernetes control plane components running in a VM
 
 **Kubernetes Cluster**
-- A real Kubernetes Cluster that has master and minions. The hollow-node pods
+- A real Kubernetes Cluster that has master and nodes. The hollow-node pods
   are run in this cluster, but appear as nodes to the Kubemark Master
 
 ## Introduction
@@ -23,7 +23,7 @@ resources provided by the VM at $MASTER_IP will serve as the kubemark master.
 ## Use Case
 
 The goal of the pre-existing provider is to use the kubemark tools with an
-existing kubermark master. It's meant to provide the developer with
+existing kubemark master. It's meant to provide the developer with
 additional flexibility to customize the cluster infrastructure and still use
 the kubemark setup tools.  The pre-existing provider is an **advanced** use
 case that requires the developer to have knowledge of setting up a kubemark

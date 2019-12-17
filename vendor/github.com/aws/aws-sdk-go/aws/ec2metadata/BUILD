@@ -6,13 +6,17 @@ go_library(
         "api.go",
         "service.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/aws/aws-sdk-go/aws/ec2metadata",
+    importpath = "github.com/aws/aws-sdk-go/aws/ec2metadata",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/aws/aws-sdk-go/aws:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/awserr:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/client:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/client/metadata:go_default_library",
+        "//vendor/github.com/aws/aws-sdk-go/aws/corehandlers:go_default_library",
         "//vendor/github.com/aws/aws-sdk-go/aws/request:go_default_library",
+        "//vendor/github.com/aws/aws-sdk-go/internal/sdkuri:go_default_library",
     ],
 )
 

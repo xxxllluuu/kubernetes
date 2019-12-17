@@ -8,13 +8,14 @@ load(
 
 go_binary(
     name = "peer-finder",
-    library = ":go_default_library",
+    embed = [":go_default_library"],
 )
 
 go_library(
     name = "go_default_library",
     srcs = ["peer-finder.go"],
-    deps = ["//vendor/k8s.io/apimachinery/pkg/util/sets:go_default_library"],
+    importpath = "k8s.io/kubernetes/test/images/pets/peer-finder",
+    deps = ["//staging/src/k8s.io/apimachinery/pkg/util/sets:go_default_library"],
 )
 
 filegroup(

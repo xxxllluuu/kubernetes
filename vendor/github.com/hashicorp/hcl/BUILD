@@ -8,6 +8,8 @@ go_library(
         "lex.go",
         "parse.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/hashicorp/hcl",
+    importpath = "github.com/hashicorp/hcl",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/hashicorp/hcl/hcl/ast:go_default_library",
@@ -30,6 +32,7 @@ filegroup(
         ":package-srcs",
         "//vendor/github.com/hashicorp/hcl/hcl/ast:all-srcs",
         "//vendor/github.com/hashicorp/hcl/hcl/parser:all-srcs",
+        "//vendor/github.com/hashicorp/hcl/hcl/printer:all-srcs",
         "//vendor/github.com/hashicorp/hcl/hcl/scanner:all-srcs",
         "//vendor/github.com/hashicorp/hcl/hcl/strconv:all-srcs",
         "//vendor/github.com/hashicorp/hcl/hcl/token:all-srcs",

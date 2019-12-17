@@ -11,6 +11,8 @@ go_library(
         "manifest.go",
         "mediatype.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/opencontainers/image-spec/specs-go/v1",
+    importpath = "github.com/opencontainers/image-spec/specs-go/v1",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/opencontainers/go-digest:go_default_library",

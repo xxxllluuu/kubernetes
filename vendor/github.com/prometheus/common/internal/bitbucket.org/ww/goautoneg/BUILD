@@ -3,7 +3,9 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["autoneg.go"],
-    visibility = ["//vendor/github.com/prometheus/common:__subpackages__"],
+    importmap = "k8s.io/kubernetes/vendor/github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg",
+    importpath = "github.com/prometheus/common/internal/bitbucket.org/ww/goautoneg",
+    visibility = ["//staging/src/k8s.io/component-base/metrics:prometheus_import_allow_list"],
 )
 
 filegroup(

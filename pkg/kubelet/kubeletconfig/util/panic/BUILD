@@ -8,7 +8,8 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["panic.go"],
-    deps = ["//vendor/k8s.io/apimachinery/pkg/util/runtime:go_default_library"],
+    importpath = "k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/panic",
+    deps = ["//staging/src/k8s.io/apimachinery/pkg/util/runtime:go_default_library"],
 )
 
 filegroup(

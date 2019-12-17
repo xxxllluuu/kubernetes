@@ -114,14 +114,19 @@ func newCertificateData(certificatePEM string, keyPEM string) *certificateData {
 }
 
 type fakeManager struct {
-	cert atomic.Value // Always a *tls.Certificate
+	cert    atomic.Value // Always a *tls.Certificate
+	healthy bool
 }
 
 func (f *fakeManager) SetCertificateSigningRequestClient(certificatesclient.CertificateSigningRequestInterface) error {
 	return nil
 }
 
-func (f *fakeManager) Start() {}
+func (f *fakeManager) ServerHealthy() bool { return f.healthy }
+
+func (f *fakeManager) Start()                     {}
+func (f *fakeManager) Stop()                      {}
+func (f *fakeManager) RotateCerts() (bool, error) { return false, nil }
 
 func (f *fakeManager) Current() *tls.Certificate {
 	if val := f.cert.Load(); val != nil {
@@ -184,7 +189,7 @@ func TestRotateShutsDownConnections(t *testing.T) {
 	}
 
 	// Check for a new cert every 10 milliseconds
-	if err := updateTransport(stop, 10*time.Millisecond, c, m); err != nil {
+	if _, err := updateTransport(stop, 10*time.Millisecond, c, m, 0); err != nil {
 		t.Fatal(err)
 	}
 

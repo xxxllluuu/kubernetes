@@ -11,6 +11,8 @@ go_library(
         "types.go",
         "util.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/google/cadvisor/collector",
+    importpath = "github.com/google/cadvisor/collector",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/google/cadvisor/container:go_default_library",

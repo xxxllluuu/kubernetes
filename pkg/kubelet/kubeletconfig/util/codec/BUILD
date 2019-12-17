@@ -8,12 +8,19 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["codec.go"],
+    importpath = "k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/codec",
     deps = [
-        "//pkg/api:go_default_library",
-        "//pkg/api/install:go_default_library",
-        "//pkg/kubelet/apis/kubeletconfig:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/runtime:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/runtime/serializer:go_default_library",
+        "//pkg/api/legacyscheme:go_default_library",
+        "//pkg/apis/core/install:go_default_library",
+        "//pkg/kubelet/apis/config:go_default_library",
+        "//pkg/kubelet/apis/config/scheme:go_default_library",
+        "//pkg/kubelet/apis/config/v1beta1:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/runtime:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/runtime/serializer:go_default_library",
+        "//staging/src/k8s.io/component-base/codec:go_default_library",
+        "//vendor/github.com/pkg/errors:go_default_library",
+        "//vendor/k8s.io/klog:go_default_library",
     ],
 )
 

@@ -6,6 +6,8 @@ go_library(
         "identifier.go",
         "mib.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/golang.org/x/text/encoding/internal/identifier",
+    importpath = "golang.org/x/text/encoding/internal/identifier",
     visibility = ["//vendor/golang.org/x/text/encoding:__subpackages__"],
 )
 

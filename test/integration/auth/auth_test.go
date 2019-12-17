@@ -22,6 +22,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -40,18 +41,17 @@ import (
 	"k8s.io/apiserver/pkg/authentication/group"
 	"k8s.io/apiserver/pkg/authentication/request/bearertoken"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
+	"k8s.io/apiserver/pkg/authentication/token/cache"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	"k8s.io/apiserver/pkg/authorization/authorizerfactory"
 	"k8s.io/apiserver/plugin/pkg/authenticator/token/tokentest"
 	"k8s.io/apiserver/plugin/pkg/authenticator/token/webhook"
-	"k8s.io/client-go/tools/clientcmd/api/v1"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/testapi"
+	v1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/auth/authorizer/abac"
-	"k8s.io/kubernetes/plugin/pkg/admission/admit"
 	"k8s.io/kubernetes/test/integration"
 	"k8s.io/kubernetes/test/integration/framework"
 )
@@ -85,30 +85,53 @@ func getTestWebhookTokenAuth(serverURL string) (authenticator.Request, error) {
 	if err := json.NewEncoder(kubecfgFile).Encode(config); err != nil {
 		return nil, err
 	}
-	webhookTokenAuth, err := webhook.New(kubecfgFile.Name(), 2*time.Minute)
+	webhookTokenAuth, err := webhook.New(kubecfgFile.Name(), "v1beta1", nil)
 	if err != nil {
 		return nil, err
 	}
-	return bearertoken.New(webhookTokenAuth), nil
+	return bearertoken.New(cache.New(webhookTokenAuth, false, 2*time.Minute, 2*time.Minute)), nil
 }
 
 func path(resource, namespace, name string) string {
-	return testapi.Default.ResourcePath(resource, namespace, name)
+	return pathWithPrefix("", resource, namespace, name)
 }
 
 func pathWithPrefix(prefix, resource, namespace, name string) string {
-	return testapi.Default.ResourcePathWithPrefix(prefix, resource, namespace, name)
+	path := "/api/v1"
+	if prefix != "" {
+		path = path + "/" + prefix
+	}
+	if namespace != "" {
+		path = path + "/namespaces/" + namespace
+	}
+	// Resource names are lower case.
+	resource = strings.ToLower(resource)
+	if resource != "" {
+		path = path + "/" + resource
+	}
+	if name != "" {
+		path = path + "/" + name
+	}
+	return path
+}
+
+func pathWithSubResource(resource, namespace, name, subresource string) string {
+	path := pathWithPrefix("", resource, namespace, name)
+	if subresource != "" {
+		path = path + "/" + subresource
+	}
+	return path
 }
 
 func timeoutPath(resource, namespace, name string) string {
-	return addTimeoutFlag(testapi.Default.ResourcePath(resource, namespace, name))
+	return addTimeoutFlag(path(resource, namespace, name))
 }
 
 // Bodies for requests used in subsequent tests.
-var aPod string = `
+var aPod = `
 {
   "kind": "Pod",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a",
     "creationTimestamp": null%s
@@ -123,10 +146,10 @@ var aPod string = `
   }
 }
 `
-var aRC string = `
+var aRC = `
 {
   "kind": "ReplicationController",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a",
     "labels": {
@@ -156,10 +179,10 @@ var aRC string = `
   }
 }
 `
-var aService string = `
+var aService = `
 {
   "kind": "Service",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a",
     "labels": {
@@ -180,10 +203,10 @@ var aService string = `
   }
 }
 `
-var aNode string = `
+var aNode = `
 {
   "kind": "Node",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a"%s
   },
@@ -197,7 +220,7 @@ func aEvent(namespace string) string {
 	return `
 {
   "kind": "Event",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a"%s
   },
@@ -211,10 +234,10 @@ func aEvent(namespace string) string {
 `
 }
 
-var aBinding string = `
+var aBinding = `
 {
   "kind": "Binding",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a"%s
   },
@@ -224,7 +247,7 @@ var aBinding string = `
 }
 `
 
-var emptyEndpoints string = `
+var emptyEndpoints = `
 {
   "kind": "Endpoints",
   "apiVersion": "v1",
@@ -234,10 +257,10 @@ var emptyEndpoints string = `
 }
 `
 
-var aEndpoints string = `
+var aEndpoints = `
 {
   "kind": "Endpoints",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "metadata": {
     "name": "a"%s
   },
@@ -259,10 +282,10 @@ var aEndpoints string = `
 }
 `
 
-var deleteNow string = `
+var deleteNow = `
 {
   "kind": "DeleteOptions",
-  "apiVersion": "` + testapi.Groups[api.GroupName].GroupVersion().String() + `",
+  "apiVersion": "v1",
   "gracePeriodSeconds": 0%s
 }
 `
@@ -326,7 +349,7 @@ func getTestRequests(namespace string) []struct {
 		// whenever a service is created, but this test does not run that controller)
 		{"POST", timeoutPath("endpoints", namespace, ""), emptyEndpoints, integration.Code201},
 		// Should return service unavailable when endpoint.subset is empty.
-		{"GET", pathWithPrefix("proxy", "services", namespace, "a") + "/", "", integration.Code503},
+		{"GET", pathWithSubResource("services", namespace, "a", "proxy") + "/", "", integration.Code503},
 		{"PUT", timeoutPath("services", namespace, "a"), aService, integration.Code200},
 		{"GET", path("services", namespace, "a"), "", integration.Code200},
 		{"DELETE", timeoutPath("endpoints", namespace, "a"), "", integration.Code200},
@@ -379,7 +402,7 @@ func getTestRequests(namespace string) []struct {
 		{"DELETE", timeoutPath("foo", namespace, ""), "", integration.Code404},
 
 		// Special verbs on nodes
-		{"GET", pathWithPrefix("proxy", "nodes", namespace, "a"), "", integration.Code404},
+		{"GET", pathWithSubResource("nodes", namespace, "a", "proxy"), "", integration.Code404},
 		{"GET", pathWithPrefix("redirect", "nodes", namespace, "a"), "", integration.Code404},
 		// TODO: test .../watch/..., which doesn't end before the test timeout.
 		// TODO: figure out how to create a node so that it can successfully proxy/redirect.
@@ -394,7 +417,7 @@ func getTestRequests(namespace string) []struct {
 	return requests
 }
 
-// The TestAuthMode* tests tests a large number of URLs and checks that they
+// The TestAuthMode* tests a large number of URLs and checks that they
 // are FORBIDDEN or not, depending on the mode.  They do not attempt to do
 // detailed verification of behaviour beyond authorization.  They are not
 // fuzz tests.
@@ -489,10 +512,10 @@ func parseResourceVersion(response []byte) (string, float64, error) {
 }
 
 func getPreviousResourceVersionKey(url, id string) string {
-	baseUrl := strings.Split(url, "?")[0]
-	key := baseUrl
+	baseURL := strings.Split(url, "?")[0]
+	key := baseURL
 	if id != "" {
-		key = fmt.Sprintf("%s/%v", baseUrl, id)
+		key = fmt.Sprintf("%s/%v", baseURL, id)
 	}
 	return key
 }
@@ -500,7 +523,7 @@ func getPreviousResourceVersionKey(url, id string) string {
 func TestAuthModeAlwaysDeny(t *testing.T) {
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authorizer = authorizerfactory.NewAlwaysDenyAuthorizer()
+	masterConfig.GenericConfig.Authorization.Authorizer = authorizerfactory.NewAlwaysDenyAuthorizer()
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -535,11 +558,11 @@ func TestAuthModeAlwaysDeny(t *testing.T) {
 // TODO(etune): remove this test once a more comprehensive built-in authorizer is implemented.
 type allowAliceAuthorizer struct{}
 
-func (allowAliceAuthorizer) Authorize(a authorizer.Attributes) (bool, string, error) {
+func (allowAliceAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
 	if a.GetUser() != nil && a.GetUser().GetName() == "alice" {
-		return true, "", nil
+		return authorizer.DecisionAllow, "", nil
 	}
-	return false, "I can't allow that.  Go ask alice.", nil
+	return authorizer.DecisionNoOpinion, "I can't allow that.  Go ask alice.", nil
 }
 
 // TestAliceNotForbiddenOrUnauthorized tests a user who is known to
@@ -549,9 +572,8 @@ func TestAliceNotForbiddenOrUnauthorized(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = allowAliceAuthorizer{}
-	masterConfig.GenericConfig.AdmissionControl = admit.NewAlwaysAdmit()
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = allowAliceAuthorizer{}
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -619,8 +641,8 @@ func TestAliceNotForbiddenOrUnauthorized(t *testing.T) {
 func TestBobIsForbidden(t *testing.T) {
 	// This file has alice and bob in it.
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = allowAliceAuthorizer{}
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = allowAliceAuthorizer{}
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -663,8 +685,8 @@ func TestUnknownUserIsUnauthorized(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = allowAliceAuthorizer{}
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = allowAliceAuthorizer{}
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -702,31 +724,31 @@ func TestUnknownUserIsUnauthorized(t *testing.T) {
 type impersonateAuthorizer struct{}
 
 // alice can't act as anyone and bob can't do anything but act-as someone
-func (impersonateAuthorizer) Authorize(a authorizer.Attributes) (bool, string, error) {
+func (impersonateAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
 	// alice can impersonate service accounts and do other actions
 	if a.GetUser() != nil && a.GetUser().GetName() == "alice" && a.GetVerb() == "impersonate" && a.GetResource() == "serviceaccounts" {
-		return true, "", nil
+		return authorizer.DecisionAllow, "", nil
 	}
 	if a.GetUser() != nil && a.GetUser().GetName() == "alice" && a.GetVerb() != "impersonate" {
-		return true, "", nil
+		return authorizer.DecisionAllow, "", nil
 	}
 	// bob can impersonate anyone, but that it
 	if a.GetUser() != nil && a.GetUser().GetName() == "bob" && a.GetVerb() == "impersonate" {
-		return true, "", nil
+		return authorizer.DecisionAllow, "", nil
 	}
 	// service accounts can do everything
 	if a.GetUser() != nil && strings.HasPrefix(a.GetUser().GetName(), serviceaccount.ServiceAccountUsernamePrefix) {
-		return true, "", nil
+		return authorizer.DecisionAllow, "", nil
 	}
 
-	return false, "I can't allow that.  Go ask alice.", nil
+	return authorizer.DecisionNoOpinion, "I can't allow that.  Go ask alice.", nil
 }
 
 func TestImpersonateIsForbidden(t *testing.T) {
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = impersonateAuthorizer{}
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = impersonateAuthorizer{}
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -861,9 +883,9 @@ type trackingAuthorizer struct {
 	requestAttributes []authorizer.Attributes
 }
 
-func (a *trackingAuthorizer) Authorize(attributes authorizer.Attributes) (bool, string, error) {
+func (a *trackingAuthorizer) Authorize(ctx context.Context, attributes authorizer.Attributes) (authorizer.Decision, string, error) {
 	a.requestAttributes = append(a.requestAttributes, attributes)
-	return true, "", nil
+	return authorizer.DecisionAllow, "", nil
 }
 
 // TestAuthorizationAttributeDetermination tests that authorization attributes are built correctly
@@ -872,8 +894,8 @@ func TestAuthorizationAttributeDetermination(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = trackingAuthorizer
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = trackingAuthorizer
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -938,8 +960,8 @@ func TestNamespaceAuthorization(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = a
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = a
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -1036,8 +1058,8 @@ func TestKindAuthorization(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = a
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = a
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -1072,8 +1094,8 @@ func TestKindAuthorization(t *testing.T) {
 			if r.verb == "PUT" && r.body != "" {
 				// For update operations, insert previous resource version
 				if resVersion := previousResourceVersion[getPreviousResourceVersionKey(r.URL, "")]; resVersion != 0 {
-					resourceVersionJson := fmt.Sprintf(",\r\n\"resourceVersion\": \"%v\"", resVersion)
-					bodyStr = fmt.Sprintf(r.body, resourceVersionJson)
+					resourceVersionJSON := fmt.Sprintf(",\r\n\"resourceVersion\": \"%v\"", resVersion)
+					bodyStr = fmt.Sprintf(r.body, resourceVersionJSON)
 				}
 			}
 		}
@@ -1120,8 +1142,8 @@ func TestReadOnlyAuthorization(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = getTestTokenAuth()
-	masterConfig.GenericConfig.Authorizer = a
+	masterConfig.GenericConfig.Authentication.Authenticator = getTestTokenAuth()
+	masterConfig.GenericConfig.Authorization.Authorizer = a
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 
@@ -1179,8 +1201,8 @@ func TestWebhookTokenAuthenticator(t *testing.T) {
 
 	// Set up a master
 	masterConfig := framework.NewIntegrationTestMasterConfig()
-	masterConfig.GenericConfig.Authenticator = authenticator
-	masterConfig.GenericConfig.Authorizer = allowAliceAuthorizer{}
+	masterConfig.GenericConfig.Authentication.Authenticator = authenticator
+	masterConfig.GenericConfig.Authorization.Authorizer = allowAliceAuthorizer{}
 	_, s, closeFn := framework.RunAMaster(masterConfig)
 	defer closeFn()
 

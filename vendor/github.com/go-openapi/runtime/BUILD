@@ -9,7 +9,9 @@ go_library(
         "client_request.go",
         "client_response.go",
         "constants.go",
+        "csv.go",
         "discard.go",
+        "file.go",
         "headers.go",
         "interfaces.go",
         "json.go",
@@ -19,6 +21,8 @@ go_library(
         "values.go",
         "xml.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/go-openapi/runtime",
+    importpath = "github.com/go-openapi/runtime",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/go-openapi/errors:go_default_library",

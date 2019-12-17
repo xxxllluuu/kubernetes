@@ -9,6 +9,8 @@ go_library(
         "tlds_pseudo.go",
         "xurls.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/mvdan/xurls",
+    importpath = "github.com/mvdan/xurls",
     visibility = ["//visibility:public"],
 )
 

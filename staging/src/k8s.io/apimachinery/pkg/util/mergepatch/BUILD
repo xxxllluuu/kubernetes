@@ -9,7 +9,7 @@ load(
 go_test(
     name = "go_default_test",
     srcs = ["util_test.go"],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
 )
 
 go_library(
@@ -18,9 +18,11 @@ go_library(
         "errors.go",
         "util.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/k8s.io/apimachinery/pkg/util/mergepatch",
+    importpath = "k8s.io/apimachinery/pkg/util/mergepatch",
     deps = [
         "//vendor/github.com/davecgh/go-spew/spew:go_default_library",
-        "//vendor/github.com/ghodss/yaml:go_default_library",
+        "//vendor/sigs.k8s.io/yaml:go_default_library",
     ],
 )
 

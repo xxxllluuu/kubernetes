@@ -7,6 +7,8 @@ go_library(
         "parse.go",
         "sort.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/docker/go-connections/nat",
+    importpath = "github.com/docker/go-connections/nat",
     visibility = ["//visibility:public"],
 )
 

@@ -6,6 +6,8 @@ go_library(
         "gomega_dsl.go",
         "matchers.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/gomega",
+    importpath = "github.com/onsi/gomega",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/onsi/gomega/internal/assertion:go_default_library",

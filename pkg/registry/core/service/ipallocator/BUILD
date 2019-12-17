@@ -9,19 +9,22 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["allocator.go"],
+    importpath = "k8s.io/kubernetes/pkg/registry/core/service/ipallocator",
     deps = [
-        "//pkg/api:go_default_library",
+        "//pkg/apis/core:go_default_library",
         "//pkg/registry/core/service/allocator:go_default_library",
+        "//vendor/k8s.io/utils/integer:go_default_library",
+        "//vendor/k8s.io/utils/net:go_default_library",
     ],
 )
 
 go_test(
     name = "go_default_test",
     srcs = ["allocator_test.go"],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
     deps = [
-        "//pkg/api:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/util/sets:go_default_library",
+        "//pkg/apis/core:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/sets:go_default_library",
     ],
 )
 

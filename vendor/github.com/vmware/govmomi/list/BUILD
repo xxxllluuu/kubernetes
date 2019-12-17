@@ -6,6 +6,8 @@ go_library(
         "lister.go",
         "path.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/vmware/govmomi/list",
+    importpath = "github.com/vmware/govmomi/list",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/vmware/govmomi/property:go_default_library",

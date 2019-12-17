@@ -20,18 +20,18 @@ import (
 	"reflect"
 	"testing"
 
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
-	crdlisters "k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/internalversion"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	crdlisters "k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/kube-aggregator/pkg/apis/apiregistration"
+	apiregistration "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 )
 
 func TestHandleVersionUpdate(t *testing.T) {
 	tests := []struct {
 		name         string
-		startingCRDs []*apiextensions.CustomResourceDefinition
+		startingCRDs []*apiextensionsv1.CustomResourceDefinition
 		version      schema.GroupVersion
 
 		expectedAdded   []*apiregistration.APIService
@@ -39,11 +39,19 @@ func TestHandleVersionUpdate(t *testing.T) {
 	}{
 		{
 			name: "simple add crd",
-			startingCRDs: []*apiextensions.CustomResourceDefinition{
+			startingCRDs: []*apiextensionsv1.CustomResourceDefinition{
 				{
-					Spec: apiextensions.CustomResourceDefinitionSpec{
-						Group:   "group.com",
-						Version: "v1",
+					Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+						Group: "group.com",
+						// Version field is deprecated and crd registration won't rely on it at all.
+						// defaulting route will fill up Versions field if user only provided version field.
+						Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+							{
+								Name:    "v1",
+								Served:  true,
+								Storage: true,
+							},
+						},
 					},
 				},
 			},
@@ -63,11 +71,17 @@ func TestHandleVersionUpdate(t *testing.T) {
 		},
 		{
 			name: "simple remove crd",
-			startingCRDs: []*apiextensions.CustomResourceDefinition{
+			startingCRDs: []*apiextensionsv1.CustomResourceDefinition{
 				{
-					Spec: apiextensions.CustomResourceDefinitionSpec{
-						Group:   "group.com",
-						Version: "v1",
+					Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+						Group: "group.com",
+						Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+							{
+								Name:    "v1",
+								Served:  true,
+								Storage: true,
+							},
+						},
 					},
 				},
 			},
@@ -78,27 +92,28 @@ func TestHandleVersionUpdate(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		registration := &fakeAPIServiceRegistration{}
-		crdCache := cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
-		crdLister := crdlisters.NewCustomResourceDefinitionLister(crdCache)
-		c := crdRegistrationController{
-			crdLister:              crdLister,
-			apiServiceRegistration: registration,
-		}
-		for i := range test.startingCRDs {
-			crdCache.Add(test.startingCRDs[i])
-		}
+		t.Run(test.name, func(t *testing.T) {
+			registration := &fakeAPIServiceRegistration{}
+			crdCache := cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+			crdLister := crdlisters.NewCustomResourceDefinitionLister(crdCache)
+			c := crdRegistrationController{
+				crdLister:              crdLister,
+				apiServiceRegistration: registration,
+			}
+			for i := range test.startingCRDs {
+				crdCache.Add(test.startingCRDs[i])
+			}
 
-		c.handleVersionUpdate(test.version)
+			c.handleVersionUpdate(test.version)
 
-		if !reflect.DeepEqual(test.expectedAdded, registration.added) {
-			t.Errorf("%s expected %v, got %v", test.name, test.expectedAdded, registration.added)
-		}
-		if !reflect.DeepEqual(test.expectedRemoved, registration.removed) {
-			t.Errorf("%s expected %v, got %v", test.name, test.expectedRemoved, registration.removed)
-		}
+			if !reflect.DeepEqual(test.expectedAdded, registration.added) {
+				t.Errorf("%s expected %v, got %v", test.name, test.expectedAdded, registration.added)
+			}
+			if !reflect.DeepEqual(test.expectedRemoved, registration.removed) {
+				t.Errorf("%s expected %v, got %v", test.name, test.expectedRemoved, registration.removed)
+			}
+		})
 	}
-
 }
 
 type fakeAPIServiceRegistration struct {

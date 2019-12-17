@@ -20,8 +20,10 @@ import (
 	"fmt"
 
 	"k8s.io/api/core/v1"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	ref "k8s.io/client-go/tools/reference"
-	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	"k8s.io/kubernetes/pkg/features"
 )
 
 var ImplicitContainerPrefix string = "implicitly required container "
@@ -39,7 +41,7 @@ func GenerateContainerRef(pod *v1.Pod, container *v1.Container) (*v1.ObjectRefer
 		// start (like the pod infra container). This is not a good way, ugh.
 		fieldPath = ImplicitContainerPrefix + container.Name
 	}
-	ref, err := ref.GetPartialReference(api.Scheme, pod, fieldPath)
+	ref, err := ref.GetPartialReference(legacyscheme.Scheme, pod, fieldPath)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +56,8 @@ func fieldPath(pod *v1.Pod, container *v1.Container) (string, error) {
 		if here.Name == container.Name {
 			if here.Name == "" {
 				return fmt.Sprintf("spec.containers[%d]", i), nil
-			} else {
-				return fmt.Sprintf("spec.containers{%s}", here.Name), nil
 			}
+			return fmt.Sprintf("spec.containers{%s}", here.Name), nil
 		}
 	}
 	for i := range pod.Spec.InitContainers {
@@ -64,10 +65,20 @@ func fieldPath(pod *v1.Pod, container *v1.Container) (string, error) {
 		if here.Name == container.Name {
 			if here.Name == "" {
 				return fmt.Sprintf("spec.initContainers[%d]", i), nil
-			} else {
-				return fmt.Sprintf("spec.initContainers{%s}", here.Name), nil
+			}
+			return fmt.Sprintf("spec.initContainers{%s}", here.Name), nil
+		}
+	}
+	if utilfeature.DefaultFeatureGate.Enabled(features.EphemeralContainers) {
+		for i := range pod.Spec.EphemeralContainers {
+			here := &pod.Spec.EphemeralContainers[i]
+			if here.Name == container.Name {
+				if here.Name == "" {
+					return fmt.Sprintf("spec.ephemeralContainers[%d]", i), nil
+				}
+				return fmt.Sprintf("spec.ephemeralContainers{%s}", here.Name), nil
 			}
 		}
 	}
-	return "", fmt.Errorf("container %#v not found in pod %#v", container, pod)
+	return "", fmt.Errorf("container %q not found in pod %s/%s", container.Name, pod.Namespace, pod.Name)
 }

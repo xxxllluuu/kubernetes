@@ -24,13 +24,14 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/generic"
-	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
-	"k8s.io/kubernetes/pkg/api"
+	genericregistrytest "k8s.io/apiserver/pkg/registry/generic/testing"
+	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
 	"k8s.io/kubernetes/pkg/apis/batch"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 )
 
-func newStorage(t *testing.T) (*JobStorage, *etcdtesting.EtcdTestServer) {
+func newStorage(t *testing.T) (*JobStorage, *etcd3testing.EtcdTestServer) {
 	etcdStorage, server := registrytest.NewEtcdStorage(t, batch.GroupName)
 	restOptions := generic.RESTOptions{
 		StorageConfig:           etcdStorage,
@@ -38,7 +39,10 @@ func newStorage(t *testing.T) (*JobStorage, *etcdtesting.EtcdTestServer) {
 		DeleteCollectionWorkers: 1,
 		ResourcePrefix:          "jobs",
 	}
-	jobStorage := NewStorage(restOptions)
+	jobStorage, err := NewStorage(restOptions)
+	if err != nil {
+		t.Fatalf("unexpected error from REST storage: %v", err)
+	}
 	return &jobStorage, server
 }
 
@@ -82,7 +86,7 @@ func TestCreate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	validJob := validNewJob()
 	validJob.ObjectMeta = metav1.ObjectMeta{}
 	test.TestCreate(
@@ -103,7 +107,7 @@ func TestUpdate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	two := int32(2)
 	test.TestUpdate(
 		// valid
@@ -132,7 +136,7 @@ func TestDelete(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	test.TestDelete(validNewJob())
 }
 
@@ -140,7 +144,7 @@ func TestGet(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	test.TestGet(validNewJob())
 }
 
@@ -148,7 +152,7 @@ func TestList(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	test.TestList(validNewJob())
 }
 
@@ -156,7 +160,7 @@ func TestWatch(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Job.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Job.Store)
+	test := genericregistrytest.New(t, storage.Job.Store)
 	test.TestWatch(
 		validNewJob(),
 		// matching labels

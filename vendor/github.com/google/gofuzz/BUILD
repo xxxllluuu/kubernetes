@@ -6,6 +6,8 @@ go_library(
         "doc.go",
         "fuzz.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/google/gofuzz",
+    importpath = "github.com/google/gofuzz",
     visibility = ["//visibility:public"],
 )
 

@@ -8,6 +8,8 @@ go_library(
         "reconcile.go",
         "version.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/containernetworking/cni/pkg/version",
+    importpath = "github.com/containernetworking/cni/pkg/version",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/containernetworking/cni/pkg/types:go_default_library",

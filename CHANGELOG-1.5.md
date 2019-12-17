@@ -1,52 +1,59 @@
 <!-- BEGIN MUNGE: GENERATED_TOC -->
-- [v1.5.7](#v157)
-  - [Downloads for v1.5.7](#downloads-for-v157)
+- [v1.5.8](#v158)
+  - [Downloads for v1.5.8](#downloads-for-v158)
     - [Client Binaries](#client-binaries)
     - [Server Binaries](#server-binaries)
     - [Node Binaries](#node-binaries)
-  - [Changelog since v1.5.6](#changelog-since-v156)
+  - [Changelog since v1.5.7](#changelog-since-v157)
     - [Other notable changes](#other-notable-changes)
-- [v1.5.6](#v156)
-  - [Downloads for v1.5.6](#downloads-for-v156)
+- [v1.5.7](#v157)
+  - [Downloads for v1.5.7](#downloads-for-v157)
     - [Client Binaries](#client-binaries-1)
     - [Server Binaries](#server-binaries-1)
-  - [Changelog since v1.5.5](#changelog-since-v155)
+    - [Node Binaries](#node-binaries-1)
+  - [Changelog since v1.5.6](#changelog-since-v156)
     - [Other notable changes](#other-notable-changes-1)
-- [v1.5.5](#v155)
-  - [Downloads for v1.5.5](#downloads-for-v155)
+- [v1.5.6](#v156)
+  - [Downloads for v1.5.6](#downloads-for-v156)
     - [Client Binaries](#client-binaries-2)
     - [Server Binaries](#server-binaries-2)
+  - [Changelog since v1.5.5](#changelog-since-v155)
+    - [Other notable changes](#other-notable-changes-2)
+- [v1.5.5](#v155)
+  - [Downloads for v1.5.5](#downloads-for-v155)
+    - [Client Binaries](#client-binaries-3)
+    - [Server Binaries](#server-binaries-3)
   - [Changelog since v1.5.4](#changelog-since-v154)
 - [v1.5.4](#v154)
   - [Downloads for v1.5.4](#downloads-for-v154)
-    - [Client Binaries](#client-binaries-3)
-    - [Server Binaries](#server-binaries-3)
-  - [Changelog since v1.5.3](#changelog-since-v153)
-    - [Other notable changes](#other-notable-changes-2)
-- [v1.5.3](#v153)
-  - [Downloads for v1.5.3](#downloads-for-v153)
     - [Client Binaries](#client-binaries-4)
     - [Server Binaries](#server-binaries-4)
-    - [Node Binaries](#node-binaries-1)
-  - [Changelog since v1.5.2](#changelog-since-v152)
+  - [Changelog since v1.5.3](#changelog-since-v153)
     - [Other notable changes](#other-notable-changes-3)
-- [v1.5.2](#v152)
-  - [Downloads for v1.5.2](#downloads-for-v152)
+- [v1.5.3](#v153)
+  - [Downloads for v1.5.3](#downloads-for-v153)
     - [Client Binaries](#client-binaries-5)
     - [Server Binaries](#server-binaries-5)
-  - [Changelog since v1.5.1](#changelog-since-v151)
+    - [Node Binaries](#node-binaries-2)
+  - [Changelog since v1.5.2](#changelog-since-v152)
     - [Other notable changes](#other-notable-changes-4)
-- [v1.5.1](#v151)
-  - [Downloads for v1.5.1](#downloads-for-v151)
+- [v1.5.2](#v152)
+  - [Downloads for v1.5.2](#downloads-for-v152)
     - [Client Binaries](#client-binaries-6)
     - [Server Binaries](#server-binaries-6)
-  - [Changelog since v1.5.0](#changelog-since-v150)
+  - [Changelog since v1.5.1](#changelog-since-v151)
     - [Other notable changes](#other-notable-changes-5)
+- [v1.5.1](#v151)
+  - [Downloads for v1.5.1](#downloads-for-v151)
+    - [Client Binaries](#client-binaries-7)
+    - [Server Binaries](#server-binaries-7)
+  - [Changelog since v1.5.0](#changelog-since-v150)
+    - [Other notable changes](#other-notable-changes-6)
   - [Known Issues for v1.5.1](#known-issues-for-v151)
 - [v1.5.0](#v150)
   - [Downloads for v1.5.0](#downloads-for-v150)
-    - [Client Binaries](#client-binaries-7)
-    - [Server Binaries](#server-binaries-7)
+    - [Client Binaries](#client-binaries-8)
+    - [Server Binaries](#server-binaries-8)
   - [Major Themes](#major-themes)
   - [Features](#features)
   - [Known Issues](#known-issues)
@@ -55,43 +62,97 @@
   - [Action Required Before Upgrading](#action-required-before-upgrading)
   - [External Dependency Version Information](#external-dependency-version-information)
   - [Changelog since v1.5.0-beta.3](#changelog-since-v150-beta3)
-    - [Other notable changes](#other-notable-changes-6)
+    - [Other notable changes](#other-notable-changes-7)
     - [Previous Releases Included in v1.5.0](#previous-releases-included-in-v150)
 - [v1.5.0-beta.3](#v150-beta3)
   - [Downloads for v1.5.0-beta.3](#downloads-for-v150-beta3)
-    - [Client Binaries](#client-binaries-8)
-    - [Server Binaries](#server-binaries-8)
-  - [Changelog since v1.5.0-beta.2](#changelog-since-v150-beta2)
-    - [Other notable changes](#other-notable-changes-7)
-- [v1.5.0-beta.2](#v150-beta2)
-  - [Downloads for v1.5.0-beta.2](#downloads-for-v150-beta2)
     - [Client Binaries](#client-binaries-9)
     - [Server Binaries](#server-binaries-9)
-  - [Changelog since v1.5.0-beta.1](#changelog-since-v150-beta1)
+  - [Changelog since v1.5.0-beta.2](#changelog-since-v150-beta2)
     - [Other notable changes](#other-notable-changes-8)
-- [v1.5.0-beta.1](#v150-beta1)
-  - [Downloads for v1.5.0-beta.1](#downloads-for-v150-beta1)
+- [v1.5.0-beta.2](#v150-beta2)
+  - [Downloads for v1.5.0-beta.2](#downloads-for-v150-beta2)
     - [Client Binaries](#client-binaries-10)
     - [Server Binaries](#server-binaries-10)
-  - [Changelog since v1.5.0-alpha.2](#changelog-since-v150-alpha2)
-    - [Action Required](#action-required)
+  - [Changelog since v1.5.0-beta.1](#changelog-since-v150-beta1)
     - [Other notable changes](#other-notable-changes-9)
-- [v1.5.0-alpha.2](#v150-alpha2)
-  - [Downloads for v1.5.0-alpha.2](#downloads-for-v150-alpha2)
+- [v1.5.0-beta.1](#v150-beta1)
+  - [Downloads for v1.5.0-beta.1](#downloads-for-v150-beta1)
     - [Client Binaries](#client-binaries-11)
     - [Server Binaries](#server-binaries-11)
+  - [Changelog since v1.5.0-alpha.2](#changelog-since-v150-alpha2)
+    - [Action Required](#action-required)
+    - [Other notable changes](#other-notable-changes-10)
+- [v1.5.0-alpha.2](#v150-alpha2)
+  - [Downloads for v1.5.0-alpha.2](#downloads-for-v150-alpha2)
+    - [Client Binaries](#client-binaries-12)
+    - [Server Binaries](#server-binaries-12)
   - [Changelog since v1.5.0-alpha.1](#changelog-since-v150-alpha1)
     - [Action Required](#action-required-1)
-    - [Other notable changes](#other-notable-changes-10)
+    - [Other notable changes](#other-notable-changes-11)
 - [v1.5.0-alpha.1](#v150-alpha1)
   - [Downloads](#downloads)
   - [Changelog since v1.4.0-alpha.3](#changelog-since-v140-alpha3)
     - [Experimental Features](#experimental-features)
     - [Action Required](#action-required-2)
-    - [Other notable changes](#other-notable-changes-11)
+    - [Other notable changes](#other-notable-changes-12)
 <!-- END MUNGE: GENERATED_TOC -->
 
 <!-- NEW RELEASE NOTES ENTRY -->
+
+
+# v1.5.8
+
+[Documentation](https://docs.k8s.io) & [Examples](https://releases.k8s.io/release-1.5/examples)
+
+## Downloads for v1.5.8
+
+
+filename | sha256 hash
+-------- | -----------
+[kubernetes.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes.tar.gz) | `6a3fad3dcc3c59f926e5c0110d16edfc323fdd5482c83102b3f8068b420702db`
+[kubernetes-src.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-src.tar.gz) | `0a1fea0278f77a7ede1f64c05e8c69ba5ea2a9403d579db2247963e7869ff9e5`
+
+### Client Binaries
+
+filename | sha256 hash
+-------- | -----------
+[kubernetes-client-darwin-386.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-darwin-386.tar.gz) | `95061ccf35dfe1d9aac0dd55c542c8f1b04874892196b0b71185ba3ea61ec424`
+[kubernetes-client-darwin-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-darwin-amd64.tar.gz) | `37b14062a8f3701efa12cb2ae9eecef2831d31881990a15bbb526689b0fd2712`
+[kubernetes-client-linux-386.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-linux-386.tar.gz) | `4c1b83462cc9c11144c957beca3479a16162ccd283462d3b6b2afcfa40550137`
+[kubernetes-client-linux-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-linux-amd64.tar.gz) | `0baefc8e2c01bddf550764a77d6fb345df331bbc4f2f56efb036d3dd50b64562`
+[kubernetes-client-linux-arm64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-linux-arm64.tar.gz) | `f0fa7369d03b330bc655f5055e8527e7211936baf3277444947e3b7c9441568e`
+[kubernetes-client-linux-arm.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-linux-arm.tar.gz) | `40e1c8e89cc93ed072858afb80eac48524282f9d6a7d2510676ddb319458d0a5`
+[kubernetes-client-windows-386.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-windows-386.tar.gz) | `8ca51905157ff3e9fff9bbd0930678c6c9ef885a14ae8580a1595aa56ac66284`
+[kubernetes-client-windows-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-client-windows-amd64.tar.gz) | `b4120b9691a13188cf1328d364d7878f0b8d893636b58e3388291142a000e69f`
+
+### Server Binaries
+
+filename | sha256 hash
+-------- | -----------
+[kubernetes-server-linux-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-server-linux-amd64.tar.gz) | `7e17b17e967722546541fdaeead4dc40037ddce4107aa2b2a561ea577aa62101`
+[kubernetes-server-linux-arm64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-server-linux-arm64.tar.gz) | `2928098e581d2ffba2750222a238d4c4e93ab31efd09977d0447964d25cc14bd`
+[kubernetes-server-linux-arm.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-server-linux-arm.tar.gz) | `65b23196a1e55e2ab3893b9e147568aaa35cbf46bc588cb0913349a93b70678c`
+
+### Node Binaries
+
+filename | sha256 hash
+-------- | -----------
+[kubernetes-node-linux-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-node-linux-amd64.tar.gz) | `4d73ccd2ecac0f2e161f88e4d77004298d10a009f9b5fa0203fa7bff70a82e30`
+[kubernetes-node-linux-arm64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-node-linux-arm64.tar.gz) | `03244b9c4149d6153eb9459e3774a4a0257fd66d3532add5721223925b6fa26f`
+[kubernetes-node-linux-arm.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-node-linux-arm.tar.gz) | `d071b710ec898b5630c776f0f6f88f44c3c72e6494c235a7c5cd5807df8fb0cb`
+[kubernetes-node-windows-amd64.tar.gz](https://dl.k8s.io/v1.5.8/kubernetes-node-windows-amd64.tar.gz) | `59448d44c86002386450c8804757bfd63f4c943670d7cf15e9221efa53ee0ef5`
+
+## Changelog since v1.5.7
+
+### Other notable changes
+
+* Update dnsmasq to the latest version. ([#53149](https://github.com/kubernetes/kubernetes/pull/53149), [@bowei](https://github.com/bowei))
+* On GCP platforms, e2e testing now logs which OS images the cluster was found to have. ([#48310](https://github.com/kubernetes/kubernetes/pull/48310), [@abgworrall](https://github.com/abgworrall))
+* Update cluster-proportional-autoscaler, etcd-empty-dir-cleanup, fluentd-gcp, and kube-addon-manager addons with refreshed base images containing fixes for CVE-2015-8271, CVE-2016-7543, CVE-2016-9841, CVE-2016-9843, CVE-2017-1000366, CVE-2017-2616, and CVE-2017-7507. ([#48011](https://github.com/kubernetes/kubernetes/pull/48011), [@ixdy](https://github.com/ixdy))
+* Bump GLBC version to 0.9.5 - fixes [loss of manually modified GCLB health check settings](https://github.com/kubernetes/kubernetes/issues/47559) upon upgrade from pre-1.6.4 to either 1.6.4 or 1.6.5. ([#47567](https://github.com/kubernetes/kubernetes/pull/47567), [@nicksardo](https://github.com/nicksardo))
+* Upgrade golang version to 1.7.6 ([#46408](https://github.com/kubernetes/kubernetes/pull/46408), [@cblecker](https://github.com/cblecker))
+
 
 
 # v1.5.7
@@ -563,52 +624,52 @@ filename | sha256 hash
 Features for this release were tracked via the use of the [kubernetes/features](https://github.com/kubernetes/features) issues repo.  Each Feature issue is owned by a Special Interest Group from [kubernetes/community](https://github.com/kubernetes/community)
 
 - **API Machinery**
-  - [beta] `kube-apiserver` support for the OpenAPI spec is moving from alpha to beta. The first [non-go client](https://github.com/kubernetes-incubator/client-python) is based on it ([kubernetes/features#53](https://github.com/kubernetes/features/issues/53))
+  - [beta] `kube-apiserver` support for the OpenAPI spec is moving from alpha to beta. The first [non-go client](https://github.com/kubernetes-incubator/client-python) is based on it ([kubernetes/features#53](https://github.com/kubernetes/enhancements/issues/53))
 - **Apps**
-  - [stable] When replica sets cannot create pods, they will now report detail via the API about the underlying reason ([kubernetes/features#120](https://github.com/kubernetes/features/issues/120))
-  - [stable] `kubectl apply` is now able to delete resources you no longer need with `--prune` ([kubernetes/features#128](https://github.com/kubernetes/features/issues/128))
-  - [beta] Deployments that cannot make progress in rolling out the newest version will now indicate via the API they are blocked ([docs](http://kubernetes.io/docs/user-guide/deployments/#failed-deployment)) ([kubernetes/features#122](https://github.com/kubernetes/features/issues/122))
-  - [beta] StatefulSets allow workloads that require persistent identity or per-instance storage to be created and managed on Kubernetes. ([docs](http://kubernetes.io/docs/concepts/abstractions/controllers/statefulsets/)) ([kubernetes/features#137](https://github.com/kubernetes/features/issues/137))
-  - [beta] In order to preserve safety guarantees the cluster no longer force deletes pods on un-responsive nodes and users are now warned if they try to force delete pods via the CLI. ([docs](http://kubernetes.io/docs/tasks/manage-stateful-set/scale-stateful-set/)) ([kubernetes/features#119](https://github.com/kubernetes/features/issues/119))
+  - [stable] When replica sets cannot create pods, they will now report detail via the API about the underlying reason ([kubernetes/features#120](https://github.com/kubernetes/enhancements/issues/120))
+  - [stable] `kubectl apply` is now able to delete resources you no longer need with `--prune` ([kubernetes/features#128](https://github.com/kubernetes/enhancements/issues/128))
+  - [beta] Deployments that cannot make progress in rolling out the newest version will now indicate via the API they are blocked ([docs](http://kubernetes.io/docs/user-guide/deployments/#failed-deployment)) ([kubernetes/features#122](https://github.com/kubernetes/enhancements/issues/122))
+  - [beta] StatefulSets allow workloads that require persistent identity or per-instance storage to be created and managed on Kubernetes. ([docs](http://kubernetes.io/docs/concepts/abstractions/controllers/statefulsets/)) ([kubernetes/features#137](https://github.com/kubernetes/enhancements/issues/137))
+  - [beta] In order to preserve safety guarantees the cluster no longer force deletes pods on un-responsive nodes and users are now warned if they try to force delete pods via the CLI. ([docs](http://kubernetes.io/docs/tasks/manage-stateful-set/scale-stateful-set/)) ([kubernetes/features#119](https://github.com/kubernetes/enhancements/issues/119))
 - **Auth**
-  - [alpha] Further polishing of the Role-based access control alpha API including a default set of cluster roles. ([docs](http://kubernetes.io/docs/admin/authorization/)) ([kubernetes/features#2](https://github.com/kubernetes/features/issues/2))
-  - [beta] Added ability to authenticate/authorize access to the Kubelet API ([docs](http://kubernetes.io/docs/admin/kubelet-authentication-authorization/)) ([kubernetes/features#89](https://github.com/kubernetes/features/issues/89))
+  - [alpha] Further polishing of the Role-based access control alpha API including a default set of cluster roles. ([docs](http://kubernetes.io/docs/admin/authorization/)) ([kubernetes/features#2](https://github.com/kubernetes/enhancements/issues/2))
+  - [beta] Added ability to authenticate/authorize access to the Kubelet API ([docs](http://kubernetes.io/docs/admin/kubelet-authentication-authorization/)) ([kubernetes/features#89](https://github.com/kubernetes/enhancements/issues/89))
 - **AWS**
-  - [stable] Roles should appear in kubectl get nodes ([kubernetes/features#113](https://github.com/kubernetes/features/issues/113))
+  - [stable] Roles should appear in kubectl get nodes ([kubernetes/features#113](https://github.com/kubernetes/enhancements/issues/113))
 - **Cluster Lifecycle**
-  - [alpha] Improved UX and usability for the kubeadm binary that makes it easy to get a new cluster running. ([docs](http://kubernetes.io/docs/getting-started-guides/kubeadm/)) ([changelog](https://github.com/kubernetes/kubeadm/blob/master/CHANGELOG.md)) ([kubernetes/features#11](https://github.com/kubernetes/features/issues/11))
+  - [alpha] Improved UX and usability for the kubeadm binary that makes it easy to get a new cluster running. ([docs](http://kubernetes.io/docs/getting-started-guides/kubeadm/)) ([changelog](https://github.com/kubernetes/kubeadm/blob/master/CHANGELOG.md)) ([kubernetes/features#11](https://github.com/kubernetes/enhancements/issues/11))
 - **Cluster Ops**
-  - [alpha] Added ability to create/remove clusters w/highly available (replicated) masters on GCE using kube-up/kube-down scripts. ([docs](http://kubernetes.io/docs/admin/ha-master-gce/)) ([kubernetes/features#48](https://github.com/kubernetes/features/issues/48))
+  - [alpha] Added ability to create/remove clusters w/highly available (replicated) masters on GCE using kube-up/kube-down scripts. ([docs](http://kubernetes.io/docs/admin/ha-master-gce/)) ([kubernetes/features#48](https://github.com/kubernetes/enhancements/issues/48))
 - **Federation**
-  - [alpha] Support for ConfigMaps in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/configmap/)) ([kubernetes/features#105](https://github.com/kubernetes/features/issues/105))
-  - [alpha] Alpha level support for DaemonSets in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/daemonsets/)) ([kubernetes/features#101](https://github.com/kubernetes/features/issues/101))
-  - [alpha] Alpha level support for Deployments in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/deployment/)) ([kubernetes/features#100](https://github.com/kubernetes/features/issues/100))
-  - [alpha] Cluster federation: Added support for DeleteOptions.OrphanDependents for federation resources. ([docs](http://kubernetes.io/docs/user-guide/federation/#cascading-deletion)) ([kubernetes/features#99](https://github.com/kubernetes/features/issues/99))
-  - [alpha] Introducing `kubefed`, a new command line tool to simplify federation control plane. ([docs](http://kubernetes.io/docs/admin/federation/kubefed/)) ([kubernetes/features#97](https://github.com/kubernetes/features/issues/97))
+  - [alpha] Support for ConfigMaps in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/configmap/)) ([kubernetes/features#105](https://github.com/kubernetes/enhancements/issues/105))
+  - [alpha] Alpha level support for DaemonSets in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/daemonsets/)) ([kubernetes/features#101](https://github.com/kubernetes/enhancements/issues/101))
+  - [alpha] Alpha level support for Deployments in federation. ([docs](http://kubernetes.io/docs/user-guide/federation/deployment/)) ([kubernetes/features#100](https://github.com/kubernetes/enhancements/issues/100))
+  - [alpha] Cluster federation: Added support for DeleteOptions.OrphanDependents for federation resources. ([docs](http://kubernetes.io/docs/user-guide/federation/#cascading-deletion)) ([kubernetes/features#99](https://github.com/kubernetes/enhancements/issues/99))
+  - [alpha] Introducing `kubefed`, a new command line tool to simplify federation control plane. ([docs](http://kubernetes.io/docs/admin/federation/kubefed/)) ([kubernetes/features#97](https://github.com/kubernetes/enhancements/issues/97))
 - **Network**
-  - [stable] Services can reference another service by DNS name, rather than being hosted in pods ([kubernetes/features#33](https://github.com/kubernetes/features/issues/33))
-  - [beta] Opt in source ip preservation for Services with Type NodePort or LoadBalancer ([docs](http://kubernetes.io/docs/tutorials/services/source-ip/)) ([kubernetes/features#27](https://github.com/kubernetes/features/issues/27))
+  - [stable] Services can reference another service by DNS name, rather than being hosted in pods ([kubernetes/features#33](https://github.com/kubernetes/enhancements/issues/33))
+  - [beta] Opt in source ip preservation for Services with Type NodePort or LoadBalancer ([docs](http://kubernetes.io/docs/tutorials/services/source-ip/)) ([kubernetes/features#27](https://github.com/kubernetes/enhancements/issues/27))
   - [stable] Enable DNS Horizontal Autoscaling with beta ConfigMap parameters support ([docs](http://kubernetes.io/docs/tasks/administer-cluster/dns-horizontal-autoscaling/))
 - **Node**
-  - [alpha] Added ability to preserve access to host userns when userns remapping is enabled in container runtime ([kubernetes/features#127](https://github.com/kubernetes/features/issues/127))
-  - [alpha] Introducing the v1alpha1 CRI API to allow pluggable container runtimes; an experimental docker-CRI integration is ready for testing and feedback. ([docs](https://github.com/kubernetes/community/blob/master/contributors/devel/container-runtime-interface.md)) ([kubernetes/features#54](https://github.com/kubernetes/features/issues/54))
-  - [alpha] Kubelet launches container in a per pod cgroup hierarchy based on quality of service tier ([kubernetes/features#126](https://github.com/kubernetes/features/issues/126))
-  - [beta] Kubelet integrates with memcg notification API to detect when a hard eviction threshold is crossed ([kubernetes/features#125](https://github.com/kubernetes/features/issues/125))
-  - [beta] Introducing the beta version containerized node conformance test gcr.io/google_containers/node-test:0.2 for users to verify node setup. ([docs](http://kubernetes.io/docs/admin/node-conformance/)) ([kubernetes/features#84](https://github.com/kubernetes/features/issues/84))
+  - [alpha] Added ability to preserve access to host userns when userns remapping is enabled in container runtime ([kubernetes/features#127](https://github.com/kubernetes/enhancements/issues/127))
+  - [alpha] Introducing the v1alpha1 CRI API to allow pluggable container runtimes; an experimental docker-CRI integration is ready for testing and feedback. ([docs](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-node/container-runtime-interface.md)) ([kubernetes/features#54](https://github.com/kubernetes/enhancements/issues/54))
+  - [alpha] Kubelet launches container in a per pod cgroup hierarchy based on quality of service tier ([kubernetes/features#126](https://github.com/kubernetes/enhancements/issues/126))
+  - [beta] Kubelet integrates with memcg notification API to detect when a hard eviction threshold is crossed ([kubernetes/features#125](https://github.com/kubernetes/enhancements/issues/125))
+  - [beta] Introducing the beta version containerized node conformance test gcr.io/google_containers/node-test:0.2 for users to verify node setup. ([docs](http://kubernetes.io/docs/admin/node-conformance/)) ([kubernetes/features#84](https://github.com/kubernetes/enhancements/issues/84))
 - **Scheduling**
-  - [alpha] Added support for accounting opaque integer resources. ([docs](http://kubernetes.io/docs/user-guide/compute-resources/#opaque-integer-resources-alpha-feature)) ([kubernetes/features#76](https://github.com/kubernetes/features/issues/76))
-  - [beta] PodDisruptionBudget has been promoted to beta, can be used to safely drain nodes while respecting application SLO's ([docs](http://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/)) ([kubernetes/features#85](https://github.com/kubernetes/features/issues/85))
+  - [alpha] Added support for accounting opaque integer resources. ([docs](http://kubernetes.io/docs/user-guide/compute-resources/#opaque-integer-resources-alpha-feature)) ([kubernetes/features#76](https://github.com/kubernetes/enhancements/issues/76))
+  - [beta] PodDisruptionBudget has been promoted to beta, can be used to safely drain nodes while respecting application SLO's ([docs](http://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/)) ([kubernetes/features#85](https://github.com/kubernetes/enhancements/issues/85))
 - **UI**
-  - [stable] Dashboard UI now shows all user facing objects and their resource usage. ([docs](http://kubernetes.io/docs/user-guide/ui/)) ([kubernetes/features#136](https://github.com/kubernetes/features/issues/136))
+  - [stable] Dashboard UI now shows all user facing objects and their resource usage. ([docs](http://kubernetes.io/docs/user-guide/ui/)) ([kubernetes/features#136](https://github.com/kubernetes/enhancements/issues/136))
 - **Windows**
-  - [alpha] Added support for Windows Server 2016 nodes and scheduling Windows Server Containers ([docs](http://kubernetes.io/docs/getting-started-guides/windows/)) ([kubernetes/features#116](https://github.com/kubernetes/features/issues/116))
+  - [alpha] Added support for Windows Server 2016 nodes and scheduling Windows Server Containers ([docs](http://kubernetes.io/docs/getting-started-guides/windows/)) ([kubernetes/features#116](https://github.com/kubernetes/enhancements/issues/116))
 
 ## Known Issues
 
 Populated via [v1.5.0 known issues / FAQ accumulator](https://github.com/kubernetes/kubernetes/issues/37134)
 
 * CRI [known issues and
-  limitations](https://github.com/kubernetes/community/blob/master/contributors/devel/container-runtime-interface.md#kubernetes-v15-release-cri-v1alpha1)
+  limitations](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-node/container-runtime-interface.md#kubernetes-v15-release-cri-v1alpha1)
 * getDeviceNameFromMount() function doesn't return the volume path correctly when the volume path contains spaces [#37712](https://github.com/kubernetes/kubernetes/issues/37712)
 * Federation alpha features do not have feature gates defined and
 are hence enabled by default. This will be fixed in a future release.
@@ -981,7 +1042,7 @@ filename | sha256 hash
 
 # v1.5.0-alpha.2
 
-[Documentation](http://kubernetes.github.io) & [Examples](http://releases.k8s.io/master/examples)
+[Documentation](http://kubernetes.github.io) & [Examples](http://releases.k8s.io/release-1.5/examples)
 
 ## Downloads for v1.5.0-alpha.2
 
@@ -1092,7 +1153,7 @@ filename | sha256 hash
 
 # v1.5.0-alpha.1
 
-[Documentation](http://kubernetes.github.io) & [Examples](http://releases.k8s.io/master/examples)
+[Documentation](http://kubernetes.github.io) & [Examples](http://releases.k8s.io/release-1.5/examples)
 
 ## Downloads
 
@@ -1135,7 +1196,7 @@ binary | sha256 hash
 * Enforce Disk based pod eviction with GCI base image in Kubelet ([#33520](https://github.com/kubernetes/kubernetes/pull/33520), [@vishh](https://github.com/vishh))
 * Remove headers that are unnecessary for proxy target ([#34076](https://github.com/kubernetes/kubernetes/pull/34076), [@mbohlool](https://github.com/mbohlool))
 * Add missing argument to log message in federated ingress controller. ([#34158](https://github.com/kubernetes/kubernetes/pull/34158), [@quinton-hoole](https://github.com/quinton-hoole))
-* The kubelet --eviction-minimum-reclaim option can now take precentages as well as absolute values for resources quantities ([#33392](https://github.com/kubernetes/kubernetes/pull/33392), [@sjenning](https://github.com/sjenning))
+* The kubelet --eviction-minimum-reclaim option can now take percentages as well as absolute values for resources quantities ([#33392](https://github.com/kubernetes/kubernetes/pull/33392), [@sjenning](https://github.com/sjenning))
 * The implicit registration of Prometheus metrics for workqueue has been removed, and a plug-able interface was added. If you were using workqueue in your own binaries and want these metrics, add the following to your imports in the main package: "k8s.io/pkg/util/workqueue/prometheus". ([#33792](https://github.com/kubernetes/kubernetes/pull/33792), [@caesarxuchao](https://github.com/caesarxuchao))
 * Add kubectl --node-port option for specifying the service nodeport ([#33319](https://github.com/kubernetes/kubernetes/pull/33319), [@juanvallejo](https://github.com/juanvallejo))
 * To reduce memory usage to reasonable levels in smaller clusters, kube-apiserver now sets the deserialization cache size based on the target memory usage. ([#34000](https://github.com/kubernetes/kubernetes/pull/34000), [@wojtek-t](https://github.com/wojtek-t))

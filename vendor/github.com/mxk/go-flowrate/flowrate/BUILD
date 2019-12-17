@@ -7,6 +7,8 @@ go_library(
         "io.go",
         "util.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/mxk/go-flowrate/flowrate",
+    importpath = "github.com/mxk/go-flowrate/flowrate",
     visibility = ["//visibility:public"],
 )
 

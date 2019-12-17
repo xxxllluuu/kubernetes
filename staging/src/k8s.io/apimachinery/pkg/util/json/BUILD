@@ -9,12 +9,14 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["json.go"],
+    importmap = "k8s.io/kubernetes/vendor/k8s.io/apimachinery/pkg/util/json",
+    importpath = "k8s.io/apimachinery/pkg/util/json",
 )
 
 go_test(
     name = "go_default_test",
     srcs = ["json_test.go"],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
 )
 
 filegroup(

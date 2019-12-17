@@ -8,6 +8,8 @@ go_library(
         "results.go",
         "urls.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/volumeattach",
+    importpath = "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/volumeattach",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/gophercloud/gophercloud:go_default_library",

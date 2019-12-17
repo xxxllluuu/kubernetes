@@ -25,13 +25,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apiserver/pkg/registry/generic"
-	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
-	"k8s.io/kubernetes/pkg/api"
+	genericregistrytest "k8s.io/apiserver/pkg/registry/generic/testing"
+	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/networking"
+	_ "k8s.io/kubernetes/pkg/apis/networking/install"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 )
 
-func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
+func newStorage(t *testing.T) (*REST, *etcd3testing.EtcdTestServer) {
 	etcdStorage, server := registrytest.NewEtcdStorage(t, networking.GroupName)
 	restOptions := generic.RESTOptions{
 		StorageConfig:           etcdStorage,
@@ -39,7 +41,11 @@ func newStorage(t *testing.T) (*REST, *etcdtesting.EtcdTestServer) {
 		DeleteCollectionWorkers: 1,
 		ResourcePrefix:          "networkpolicies",
 	}
-	return NewREST(restOptions), server
+	rest, err := NewREST(restOptions)
+	if err != nil {
+		t.Fatalf("unexpected error from REST storage: %v", err)
+	}
+	return rest, server
 }
 
 func validNetworkPolicy() *networking.NetworkPolicy {
@@ -71,7 +77,7 @@ func TestCreate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	np := validNetworkPolicy()
 	np.ObjectMeta = metav1.ObjectMeta{GenerateName: "foo-"}
 	test.TestCreate(
@@ -89,7 +95,7 @@ func TestUpdate(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestUpdate(
 		// valid
 		validNetworkPolicy(),
@@ -132,7 +138,7 @@ func TestDelete(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestDelete(validNetworkPolicy())
 }
 
@@ -140,7 +146,7 @@ func TestGet(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestGet(validNetworkPolicy())
 }
 
@@ -148,7 +154,7 @@ func TestList(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestList(validNetworkPolicy())
 }
 
@@ -156,7 +162,7 @@ func TestWatch(t *testing.T) {
 	storage, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestWatch(
 		validNetworkPolicy(),
 		// matching labels

@@ -23,17 +23,20 @@ import (
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/generic"
 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
-	"k8s.io/kubernetes/pkg/api"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 )
 
 func TestPodLogValidates(t *testing.T) {
 	config, server := registrytest.NewEtcdStorage(t, "")
 	defer server.Terminate(t)
-	s, destroyFunc := generic.NewRawStorage(config)
+	s, destroyFunc, err := generic.NewRawStorage(config)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
 	defer destroyFunc()
 	store := &genericregistry.Store{
-		Storage: s,
+		Storage: genericregistry.DryRunnableStorage{Storage: s},
 	}
 	logRest := &LogREST{Store: store, KubeletConn: nil}
 
@@ -46,7 +49,7 @@ func TestPodLogValidates(t *testing.T) {
 	for _, tc := range testCases {
 		_, err := logRest.Get(genericapirequest.NewDefaultContext(), "test", tc)
 		if !errors.IsInvalid(err) {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("Unexpected error: %v", err)
 		}
 	}
 }

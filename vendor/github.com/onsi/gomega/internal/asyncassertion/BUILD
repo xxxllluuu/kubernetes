@@ -3,6 +3,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["async_assertion.go"],
+    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/gomega/internal/asyncassertion",
+    importpath = "github.com/onsi/gomega/internal/asyncassertion",
     visibility = ["//vendor/github.com/onsi/gomega:__subpackages__"],
     deps = [
         "//vendor/github.com/onsi/gomega/internal/oraclematcher:go_default_library",

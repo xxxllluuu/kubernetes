@@ -19,20 +19,25 @@ package storage
 import (
 	"testing"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	// Ensure that autoscaling/v1 package is initialized.
 	_ "k8s.io/api/autoscaling/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/diff"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/generic"
-	etcdtesting "k8s.io/apiserver/pkg/storage/etcd/testing"
+	genericregistrytest "k8s.io/apiserver/pkg/registry/generic/testing"
+	"k8s.io/apiserver/pkg/registry/rest"
+	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 )
 
-func newStorage(t *testing.T) (*REST, *StatusREST, *etcdtesting.EtcdTestServer) {
+func newStorage(t *testing.T) (*REST, *StatusREST, *etcd3testing.EtcdTestServer) {
 	etcdStorage, server := registrytest.NewEtcdStorage(t, autoscaling.GroupName)
 	restOptions := generic.RESTOptions{
 		StorageConfig:           etcdStorage,
@@ -40,7 +45,10 @@ func newStorage(t *testing.T) (*REST, *StatusREST, *etcdtesting.EtcdTestServer) 
 		DeleteCollectionWorkers: 1,
 		ResourcePrefix:          "horizontalpodautoscalers",
 	}
-	horizontalPodAutoscalerStorage, statusStorage := NewREST(restOptions)
+	horizontalPodAutoscalerStorage, statusStorage, err := NewREST(restOptions)
+	if err != nil {
+		t.Fatalf("unexpected error from REST storage: %v", err)
+	}
 	return horizontalPodAutoscalerStorage, statusStorage, server
 }
 
@@ -62,7 +70,10 @@ func validNewHorizontalPodAutoscaler(name string) *autoscaling.HorizontalPodAuto
 					Type: autoscaling.ResourceMetricSourceType,
 					Resource: &autoscaling.ResourceMetricSource{
 						Name: api.ResourceCPU,
-						TargetAverageUtilization: &cpu,
+						Target: autoscaling.MetricTarget{
+							Type:               autoscaling.UtilizationMetricType,
+							AverageUtilization: &cpu,
+						},
 					},
 				},
 			},
@@ -74,7 +85,7 @@ func TestCreate(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	autoscaler := validNewHorizontalPodAutoscaler("foo")
 	autoscaler.ObjectMeta = metav1.ObjectMeta{}
 	test.TestCreate(
@@ -89,7 +100,7 @@ func TestUpdate(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestUpdate(
 		// valid
 		validNewHorizontalPodAutoscaler("foo"),
@@ -106,7 +117,7 @@ func TestDelete(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestDelete(validNewHorizontalPodAutoscaler("foo"))
 }
 
@@ -114,7 +125,7 @@ func TestGet(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestGet(validNewHorizontalPodAutoscaler("foo"))
 }
 
@@ -122,7 +133,7 @@ func TestList(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestList(validNewHorizontalPodAutoscaler("foo"))
 }
 
@@ -130,7 +141,7 @@ func TestWatch(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	defer storage.Store.DestroyFunc()
-	test := registrytest.New(t, storage.Store)
+	test := genericregistrytest.New(t, storage.Store)
 	test.TestWatch(
 		validNewHorizontalPodAutoscaler("foo"),
 		// matching labels
@@ -165,4 +176,38 @@ func TestCategories(t *testing.T) {
 	registrytest.AssertCategories(t, storage, expected)
 }
 
-// TODO TestUpdateStatus
+func TestUpdateStatus(t *testing.T) {
+	storage, statusStorage, server := newStorage(t)
+	defer server.Terminate(t)
+	defer storage.Store.DestroyFunc()
+	ctx := genericapirequest.NewDefaultContext()
+	key, _ := storage.KeyFunc(ctx, "foo")
+	autoscalerStart := validNewHorizontalPodAutoscaler("foo")
+	err := storage.Storage.Create(ctx, key, autoscalerStart, nil, 0, false)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	autoscalerIn := &autoscaling.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: metav1.NamespaceDefault,
+		},
+		Status: autoscaling.HorizontalPodAutoscalerStatus{
+			Conditions: []autoscaling.HorizontalPodAutoscalerCondition{
+				{Status: "True"},
+			},
+		},
+	}
+
+	_, _, err = statusStorage.Update(ctx, autoscalerIn.Name, rest.DefaultUpdatedObjectInfo(autoscalerIn), rest.ValidateAllObjectFunc, rest.ValidateAllObjectUpdateFunc, false, &metav1.UpdateOptions{})
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	obj, err := storage.Get(ctx, "foo", &metav1.GetOptions{})
+	autosclaerOut := obj.(*autoscaling.HorizontalPodAutoscaler)
+	// only compare the meaningful update b/c we can't compare due to metadata
+	if !apiequality.Semantic.DeepEqual(autoscalerIn.Status, autosclaerOut.Status) {
+		t.Errorf("unexpected object: %s", diff.ObjectDiff(autoscalerIn, autosclaerOut))
+	}
+}

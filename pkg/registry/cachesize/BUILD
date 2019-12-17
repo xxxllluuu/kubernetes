@@ -8,7 +8,8 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["cachesize.go"],
-    deps = ["//vendor/k8s.io/apimachinery/pkg/runtime/schema:go_default_library"],
+    importpath = "k8s.io/kubernetes/pkg/registry/cachesize",
+    deps = ["//staging/src/k8s.io/apimachinery/pkg/runtime/schema:go_default_library"],
 )
 
 filegroup(

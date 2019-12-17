@@ -6,6 +6,8 @@ go_library(
         "error.go",
         "parser.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/hashicorp/hcl/hcl/parser",
+    importpath = "github.com/hashicorp/hcl/hcl/parser",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/hashicorp/hcl/hcl/ast:go_default_library",

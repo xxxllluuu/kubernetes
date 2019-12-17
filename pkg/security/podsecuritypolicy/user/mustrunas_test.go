@@ -17,16 +17,15 @@ limitations under the License.
 package user
 
 import (
+	policy "k8s.io/api/policy/v1beta1"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"strings"
 	"testing"
-
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/apis/extensions"
 )
 
 func TestNewMustRunAs(t *testing.T) {
 	tests := map[string]struct {
-		opts *extensions.RunAsUserStrategyOptions
+		opts *policy.RunAsUserStrategyOptions
 		pass bool
 	}{
 		"nil opts": {
@@ -34,12 +33,12 @@ func TestNewMustRunAs(t *testing.T) {
 			pass: false,
 		},
 		"invalid opts": {
-			opts: &extensions.RunAsUserStrategyOptions{},
+			opts: &policy.RunAsUserStrategyOptions{},
 			pass: false,
 		},
 		"valid opts": {
-			opts: &extensions.RunAsUserStrategyOptions{
-				Ranges: []extensions.UserIDRange{
+			opts: &policy.RunAsUserStrategyOptions{
+				Ranges: []policy.IDRange{
 					{Min: 1, Max: 1},
 				},
 			},
@@ -58,8 +57,8 @@ func TestNewMustRunAs(t *testing.T) {
 }
 
 func TestGenerate(t *testing.T) {
-	opts := &extensions.RunAsUserStrategyOptions{
-		Ranges: []extensions.UserIDRange{
+	opts := &policy.RunAsUserStrategyOptions{
+		Ranges: []policy.IDRange{
 			{Min: 1, Max: 1},
 		},
 	}
@@ -77,8 +76,8 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	opts := &extensions.RunAsUserStrategyOptions{
-		Ranges: []extensions.UserIDRange{
+	opts := &policy.RunAsUserStrategyOptions{
+		Ranges: []policy.IDRange{
 			{Min: 1, Max: 1},
 			{Min: 10, Max: 20},
 		},
@@ -98,19 +97,13 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"nil security context": {
-			container: &api.Container{
-				SecurityContext: nil,
-			},
-			expectedMsg: "unable to validate nil security context for container",
-		},
 		"nil run as user": {
 			container: &api.Container{
 				SecurityContext: &api.SecurityContext{
 					RunAsUser: nil,
 				},
 			},
-			expectedMsg: "unable to validate nil RunAsUser for container",
+			expectedMsg: "runAsUser: Required",
 		},
 		"invalid id": {
 			container: &api.Container{
@@ -118,7 +111,7 @@ func TestValidate(t *testing.T) {
 					RunAsUser: &invalidID,
 				},
 			},
-			expectedMsg: "does not match required range",
+			expectedMsg: "runAsUser: Invalid",
 		},
 	}
 
@@ -128,7 +121,7 @@ func TestValidate(t *testing.T) {
 			t.Errorf("unexpected error initializing NewMustRunAs for testcase %s: %#v", name, err)
 			continue
 		}
-		errs := mustRunAs.Validate(nil, tc.container)
+		errs := mustRunAs.Validate(nil, nil, nil, tc.container.SecurityContext.RunAsNonRoot, tc.container.SecurityContext.RunAsUser)
 		//should've passed but didn't
 		if len(tc.expectedMsg) == 0 && len(errs) > 0 {
 			t.Errorf("%s expected no errors but received %v", name, errs)

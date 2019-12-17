@@ -9,6 +9,8 @@ go_library(
         "foreach.go",
         "msg.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/gogo/protobuf/vanity",
+    importpath = "github.com/gogo/protobuf/vanity",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/gogo/protobuf/gogoproto:go_default_library",

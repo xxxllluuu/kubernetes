@@ -9,7 +9,12 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["features.go"],
-    deps = ["//vendor/k8s.io/apiserver/pkg/util/feature:go_default_library"],
+    importpath = "k8s.io/kubernetes/cmd/kubeadm/app/features",
+    deps = [
+        "//staging/src/k8s.io/apimachinery/pkg/util/version:go_default_library",
+        "//staging/src/k8s.io/component-base/featuregate:go_default_library",
+        "//vendor/github.com/pkg/errors:go_default_library",
+    ],
 )
 
 filegroup(
@@ -28,6 +33,9 @@ filegroup(
 go_test(
     name = "go_default_test",
     srcs = ["features_test.go"],
-    library = ":go_default_library",
-    deps = ["//vendor/k8s.io/apiserver/pkg/util/feature:go_default_library"],
+    embed = [":go_default_library"],
+    deps = [
+        "//cmd/kubeadm/app/constants:go_default_library",
+        "//staging/src/k8s.io/component-base/featuregate:go_default_library",
+    ],
 )

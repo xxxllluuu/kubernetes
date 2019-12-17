@@ -1,21 +1,23 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
 approvers:
 - pmorie
 - saad-ali
 - thockin
-- matchstick
-- kerneltime
-reviewers:
-- abithap
+- SandeepPissay
+- divyenpatel
+- BaluDontu
 - abrarshivani
-- thockin
-- smarterclayton
-- brendandburns
-- derekwaynecarr
-- pmorie
+emeritus_approvers:
+- matchstick
+reviewers:
+- abrarshivani
 - saad-ali
 - justinsb
 - jsafrane
 - rootfs
 - jingxu97
 - msau42
-- kerneltime
+- SandeepPissay
+- divyenpatel
+- BaluDontu

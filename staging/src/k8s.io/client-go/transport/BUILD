@@ -11,9 +11,11 @@ go_test(
     srcs = [
         "cache_test.go",
         "round_trippers_test.go",
+        "token_source_test.go",
         "transport_test.go",
     ],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
+    deps = ["//vendor/golang.org/x/oauth2:go_default_library"],
 )
 
 go_library(
@@ -22,14 +24,15 @@ go_library(
         "cache.go",
         "config.go",
         "round_trippers.go",
+        "token_source.go",
         "transport.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/k8s.io/client-go/transport",
+    importpath = "k8s.io/client-go/transport",
     deps = [
-        "//vendor/github.com/golang/glog:go_default_library",
-        "//vendor/github.com/gregjones/httpcache:go_default_library",
-        "//vendor/github.com/gregjones/httpcache/diskcache:go_default_library",
-        "//vendor/github.com/peterbourgon/diskv:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/util/net:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/net:go_default_library",
+        "//vendor/golang.org/x/oauth2:go_default_library",
+        "//vendor/k8s.io/klog:go_default_library",
     ],
 )
 

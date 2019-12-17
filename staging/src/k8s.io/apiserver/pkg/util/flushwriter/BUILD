@@ -9,7 +9,7 @@ load(
 go_test(
     name = "go_default_test",
     srcs = ["writer_test.go"],
-    library = ":go_default_library",
+    embed = [":go_default_library"],
 )
 
 go_library(
@@ -18,6 +18,8 @@ go_library(
         "doc.go",
         "writer.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/k8s.io/apiserver/pkg/util/flushwriter",
+    importpath = "k8s.io/apiserver/pkg/util/flushwriter",
 )
 
 filegroup(

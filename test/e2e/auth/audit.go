@@ -17,43 +17,451 @@ limitations under the License.
 package auth
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
-	apiv1 "k8s.io/api/core/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apiextensionclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/test/integration/fixtures"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apiserver/pkg/apis/audit/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+	auditinternal "k8s.io/apiserver/pkg/apis/audit"
+	auditv1 "k8s.io/apiserver/pkg/apis/audit/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework/auth"
+	e2edeploy "k8s.io/kubernetes/test/e2e/framework/deployment"
+	"k8s.io/kubernetes/test/utils"
+	imageutils "k8s.io/kubernetes/test/utils/image"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	jsonpatch "github.com/evanphx/json-patch"
+	"github.com/onsi/ginkgo"
 )
 
-var _ = SIGDescribe("Advanced Audit [Feature:Audit]", func() {
+var (
+	watchTestTimeout int64 = 1
+	auditTestUser          = "kubecfg"
+
+	crd          = fixtures.NewRandomNameCustomResourceDefinition(apiextensionsv1beta1.ClusterScoped)
+	crdName      = strings.SplitN(crd.Name, ".", 2)[0]
+	crdNamespace = strings.SplitN(crd.Name, ".", 2)[1]
+
+	watchOptions = metav1.ListOptions{TimeoutSeconds: &watchTestTimeout}
+	patch, _     = json.Marshal(jsonpatch.Patch{})
+)
+
+// TODO: Get rid of [DisabledForLargeClusters] when feature request #53455 is ready.
+// Marked as flaky until a reliable method for collecting server-side audit logs is available. See http://issue.k8s.io/74745#issuecomment-474052439
+var _ = SIGDescribe("Advanced Audit [DisabledForLargeClusters][Flaky]", func() {
 	f := framework.NewDefaultFramework("audit")
+	var namespace string
+	ginkgo.BeforeEach(func() {
+		framework.SkipUnlessProviderIs("gce")
+		namespace = f.Namespace.Name
+	})
 
-	It("should audit API calls", func() {
-		namespace := f.Namespace.Name
-
-		// Create & Delete pod
-		pod := &apiv1.Pod{
+	ginkgo.It("should audit API calls to create, get, update, patch, delete, list, watch pods.", func() {
+		pod := &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "audit-pod",
 			},
-			Spec: apiv1.PodSpec{
-				Containers: []apiv1.Container{{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{{
 					Name:  "pause",
-					Image: framework.GetPauseImageName(f.ClientSet),
+					Image: imageutils.GetPauseImageName(),
 				}},
 			},
 		}
+		updatePod := func(pod *v1.Pod) {}
+
 		f.PodClient().CreateSync(pod)
+
+		_, err := f.PodClient().Get(pod.Name, metav1.GetOptions{})
+		framework.ExpectNoError(err, "failed to get audit-pod")
+
+		podChan, err := f.PodClient().Watch(watchOptions)
+		framework.ExpectNoError(err, "failed to create watch for pods")
+		podChan.Stop()
+
+		f.PodClient().Update(pod.Name, updatePod)
+
+		_, err = f.PodClient().List(metav1.ListOptions{})
+		framework.ExpectNoError(err, "failed to list pods")
+
+		_, err = f.PodClient().Patch(pod.Name, types.JSONPatchType, patch)
+		framework.ExpectNoError(err, "failed to patch pod")
+
 		f.PodClient().DeleteSync(pod.Name, &metav1.DeleteOptions{}, framework.DefaultPodDeletionTimeout)
 
-		// Create, Read, Delete secret
-		secret := &apiv1.Secret{
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace),
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods/audit-pod", namespace),
+				Verb:              "get",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace),
+				Verb:              "list",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseStarted,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods/audit-pod", namespace),
+				Verb:              "update",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods/audit-pod", namespace),
+				Verb:              "patch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/pods/audit-pod", namespace),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "pods",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			},
+		})
+	})
+
+	ginkgo.It("should audit API calls to create, get, update, patch, delete, list, watch deployments.", func() {
+		podLabels := map[string]string{"name": "audit-deployment-pod"}
+		d := e2edeploy.NewDeployment("audit-deployment", int32(1), podLabels, "agnhost", imageutils.GetE2EImage(imageutils.Agnhost), appsv1.RecreateDeploymentStrategyType)
+
+		_, err := f.ClientSet.AppsV1().Deployments(namespace).Create(d)
+		framework.ExpectNoError(err, "failed to create audit-deployment")
+
+		_, err = f.ClientSet.AppsV1().Deployments(namespace).Get(d.Name, metav1.GetOptions{})
+		framework.ExpectNoError(err, "failed to get audit-deployment")
+
+		deploymentChan, err := f.ClientSet.AppsV1().Deployments(namespace).Watch(watchOptions)
+		framework.ExpectNoError(err, "failed to create watch for deployments")
+		deploymentChan.Stop()
+
+		_, err = f.ClientSet.AppsV1().Deployments(namespace).Update(d)
+		framework.ExpectNoError(err, "failed to update audit-deployment")
+
+		_, err = f.ClientSet.AppsV1().Deployments(namespace).Patch(d.Name, types.JSONPatchType, patch)
+		framework.ExpectNoError(err, "failed to patch deployment")
+
+		_, err = f.ClientSet.AppsV1().Deployments(namespace).List(metav1.ListOptions{})
+		framework.ExpectNoError(err, "failed to create list deployments")
+
+		err = f.ClientSet.AppsV1().Deployments(namespace).Delete("audit-deployment", &metav1.DeleteOptions{})
+		framework.ExpectNoError(err, "failed to delete deployments")
+
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments", namespace),
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/audit-deployment", namespace),
+				Verb:              "get",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments", namespace),
+				Verb:              "list",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseStarted,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequest,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/audit-deployment", namespace),
+				Verb:              "update",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/audit-deployment", namespace),
+				Verb:              "patch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/audit-deployment", namespace),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "deployments",
+				Namespace:         namespace,
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			},
+		})
+	})
+
+	ginkgo.It("should audit API calls to create, get, update, patch, delete, list, watch configmaps.", func() {
+		configMap := &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "audit-configmap",
+			},
+			Data: map[string]string{
+				"map-key": "map-value",
+			},
+		}
+
+		_, err := f.ClientSet.CoreV1().ConfigMaps(namespace).Create(configMap)
+		framework.ExpectNoError(err, "failed to create audit-configmap")
+
+		_, err = f.ClientSet.CoreV1().ConfigMaps(namespace).Get(configMap.Name, metav1.GetOptions{})
+		framework.ExpectNoError(err, "failed to get audit-configmap")
+
+		configMapChan, err := f.ClientSet.CoreV1().ConfigMaps(namespace).Watch(watchOptions)
+		framework.ExpectNoError(err, "failed to create watch for config maps")
+		configMapChan.Stop()
+
+		_, err = f.ClientSet.CoreV1().ConfigMaps(namespace).Update(configMap)
+		framework.ExpectNoError(err, "failed to update audit-configmap")
+
+		_, err = f.ClientSet.CoreV1().ConfigMaps(namespace).Patch(configMap.Name, types.JSONPatchType, patch)
+		framework.ExpectNoError(err, "failed to patch configmap")
+
+		_, err = f.ClientSet.CoreV1().ConfigMaps(namespace).List(metav1.ListOptions{})
+		framework.ExpectNoError(err, "failed to list config maps")
+
+		err = f.ClientSet.CoreV1().ConfigMaps(namespace).Delete(configMap.Name, &metav1.DeleteOptions{})
+		framework.ExpectNoError(err, "failed to delete audit-configmap")
+
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps", namespace),
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps/audit-configmap", namespace),
+				Verb:              "get",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps", namespace),
+				Verb:              "list",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseStarted,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps/audit-configmap", namespace),
+				Verb:              "update",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps/audit-configmap", namespace),
+				Verb:              "patch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/configmaps/audit-configmap", namespace),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "configmaps",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			},
+		})
+	})
+
+	ginkgo.It("should audit API calls to create, get, update, patch, delete, list, watch secrets.", func() {
+		secret := &v1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "audit-secret",
 			},
@@ -61,119 +469,281 @@ var _ = SIGDescribe("Advanced Audit [Feature:Audit]", func() {
 				"top-secret": []byte("foo-bar"),
 			},
 		}
-		_, err := f.ClientSet.Core().Secrets(f.Namespace.Name).Create(secret)
+		_, err := f.ClientSet.CoreV1().Secrets(namespace).Create(secret)
 		framework.ExpectNoError(err, "failed to create audit-secret")
-		_, err = f.ClientSet.Core().Secrets(f.Namespace.Name).Get(secret.Name, metav1.GetOptions{})
+
+		_, err = f.ClientSet.CoreV1().Secrets(namespace).Get(secret.Name, metav1.GetOptions{})
 		framework.ExpectNoError(err, "failed to get audit-secret")
-		err = f.ClientSet.Core().Secrets(f.Namespace.Name).Delete(secret.Name, &metav1.DeleteOptions{})
+
+		secretChan, err := f.ClientSet.CoreV1().Secrets(namespace).Watch(watchOptions)
+		framework.ExpectNoError(err, "failed to create watch for secrets")
+		secretChan.Stop()
+
+		_, err = f.ClientSet.CoreV1().Secrets(namespace).Update(secret)
+		framework.ExpectNoError(err, "failed to update audit-secret")
+
+		_, err = f.ClientSet.CoreV1().Secrets(namespace).Patch(secret.Name, types.JSONPatchType, patch)
+		framework.ExpectNoError(err, "failed to patch secret")
+
+		_, err = f.ClientSet.CoreV1().Secrets(namespace).List(metav1.ListOptions{})
+		framework.ExpectNoError(err, "failed to list secrets")
+
+		err = f.ClientSet.CoreV1().Secrets(namespace).Delete(secret.Name, &metav1.DeleteOptions{})
 		framework.ExpectNoError(err, "failed to delete audit-secret")
 
-		expectedEvents := []auditEvent{{
-			method:    "create",
-			namespace: namespace,
-			uri:       fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace),
-			response:  "201",
-		}, {
-			method:    "delete",
-			namespace: namespace,
-			uri:       fmt.Sprintf("/api/v1/namespaces/%s/pods/%s", namespace, pod.Name),
-			response:  "200",
-		}, {
-			method:    "create",
-			namespace: namespace,
-			uri:       fmt.Sprintf("/api/v1/namespaces/%s/secrets", namespace),
-			response:  "201",
-		}, {
-			method:    "get",
-			namespace: namespace,
-			uri:       fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", namespace, secret.Name),
-			response:  "200",
-		}, {
-			method:    "delete",
-			namespace: namespace,
-			uri:       fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", namespace, secret.Name),
-			response:  "200",
-		}}
-		expectAuditLines(f, expectedEvents)
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets", namespace),
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets/audit-secret", namespace),
+				Verb:              "get",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets", namespace),
+				Verb:              "list",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseStarted,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets?timeout=%ds&timeoutSeconds=%d&watch=true", namespace, watchTestTimeout, watchTestTimeout),
+				Verb:              "watch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets/audit-secret", namespace),
+				Verb:              "update",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets/audit-secret", namespace),
+				Verb:              "patch",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/api/v1/namespaces/%s/secrets/audit-secret", namespace),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "secrets",
+				Namespace:         namespace,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			},
+		})
 	})
-})
 
-type auditEvent struct {
-	method, namespace, uri, response string
-}
+	ginkgo.It("should audit API calls to create and delete custom resource definition.", func() {
+		config, err := framework.LoadConfig()
+		framework.ExpectNoError(err, "failed to load config")
+		apiExtensionClient, err := apiextensionclientset.NewForConfig(config)
+		framework.ExpectNoError(err, "failed to initialize apiExtensionClient")
 
-// Search the audit log for the expected audit lines.
-func expectAuditLines(f *framework.Framework, expected []auditEvent) {
-	expectations := map[auditEvent]bool{}
-	for _, event := range expected {
-		expectations[event] = false
-	}
+		crd, err = fixtures.CreateNewCustomResourceDefinition(crd, apiExtensionClient, f.DynamicClient)
+		framework.ExpectNoError(err, "failed to create custom resource definition")
+		err = fixtures.DeleteCustomResourceDefinition(crd, apiExtensionClient)
+		framework.ExpectNoError(err, "failed to delete custom resource definition")
 
-	// Fetch the log stream.
-	stream, err := f.ClientSet.Core().RESTClient().Get().AbsPath("/logs/kube-apiserver-audit.log").Stream()
-	framework.ExpectNoError(err, "could not read audit log")
-	defer stream.Close()
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        "/apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions",
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          "customresourcedefinitions",
+				RequestObject:     true,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/%s/v1beta1/%s", crdNamespace, crdName),
+				Verb:              "create",
+				Code:              201,
+				User:              auditTestUser,
+				Resource:          crdName,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelRequestResponse,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions/%s", crd.Name),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          "customresourcedefinitions",
+				RequestObject:     false,
+				ResponseObject:    true,
+				AuthorizeDecision: "allow",
+			}, {
+				Level:             auditinternal.LevelMetadata,
+				Stage:             auditinternal.StageResponseComplete,
+				RequestURI:        fmt.Sprintf("/apis/%s/v1beta1/%s/setup-instance", crdNamespace, crdName),
+				Verb:              "delete",
+				Code:              200,
+				User:              auditTestUser,
+				Resource:          crdName,
+				RequestObject:     false,
+				ResponseObject:    false,
+				AuthorizeDecision: "allow",
+			},
+		})
+	})
 
-	scanner := bufio.NewScanner(stream)
-	for scanner.Scan() {
-		line := scanner.Text()
-		event, err := parseAuditLine(line)
+	// test authorizer annotations, RBAC is required.
+	ginkgo.It("should audit API calls to get a pod with unauthorized user.", func() {
+		if !auth.IsRBACEnabled(f.ClientSet.RbacV1()) {
+			framework.Skipf("RBAC not enabled.")
+		}
+
+		ginkgo.By("Creating a kubernetes client that impersonates an unauthorized anonymous user")
+		config, err := framework.LoadConfig()
+		framework.ExpectNoError(err)
+		config.Impersonate = restclient.ImpersonationConfig{
+			UserName: "system:anonymous",
+			Groups:   []string{"system:unauthenticated"},
+		}
+		anonymousClient, err := clientset.NewForConfig(config)
 		framework.ExpectNoError(err)
 
-		// If the event was expected, mark it as found.
-		if _, found := expectations[event]; found {
-			expectations[event] = true
-		}
-	}
-	framework.ExpectNoError(scanner.Err(), "error reading audit log")
+		_, err = anonymousClient.CoreV1().Pods(namespace).Get("another-audit-pod", metav1.GetOptions{})
+		expectForbidden(err)
 
-	for event, found := range expectations {
-		Expect(found).To(BeTrue(), "Event %#v not found!", event)
-	}
-}
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:              auditinternal.LevelRequest,
+				Stage:              auditinternal.StageResponseComplete,
+				RequestURI:         fmt.Sprintf("/api/v1/namespaces/%s/pods/another-audit-pod", namespace),
+				Verb:               "get",
+				Code:               403,
+				User:               auditTestUser,
+				ImpersonatedUser:   "system:anonymous",
+				ImpersonatedGroups: "system:unauthenticated",
+				Resource:           "pods",
+				Namespace:          namespace,
+				RequestObject:      false,
+				ResponseObject:     false,
+				AuthorizeDecision:  "forbid",
+			},
+		})
+	})
 
-func parseAuditLine(line string) (auditEvent, error) {
-	var e v1beta1.Event
-	if err := json.Unmarshal([]byte(line), &e); err == nil {
-		event := auditEvent{
-			method: e.Verb,
-			uri:    e.RequestURI,
+	ginkgo.It("should list pods as impersonated user.", func() {
+		ginkgo.By("Creating a kubernetes client that impersonates an authorized user")
+		config, err := framework.LoadConfig()
+		framework.ExpectNoError(err)
+		config.Impersonate = restclient.ImpersonationConfig{
+			UserName: "superman",
+			Groups:   []string{"system:masters"},
 		}
-		if e.ObjectRef != nil {
-			event.namespace = e.ObjectRef.Namespace
-		}
-		if e.ResponseStatus != nil {
-			event.response = fmt.Sprintf("%d", e.ResponseStatus.Code)
-		}
-		return event, nil
-	}
+		impersonatedClient, err := clientset.NewForConfig(config)
+		framework.ExpectNoError(err)
 
-	fields := strings.Fields(line)
-	if len(fields) < 3 {
-		return auditEvent{}, fmt.Errorf("could not parse audit line: %s", line)
-	}
-	// Ignore first field (timestamp)
-	if fields[1] != "AUDIT:" {
-		return auditEvent{}, fmt.Errorf("unexpected audit line format: %s", line)
-	}
-	fields = fields[2:]
-	event := auditEvent{}
-	for _, f := range fields {
-		parts := strings.SplitN(f, "=", 2)
-		if len(parts) != 2 {
-			return auditEvent{}, fmt.Errorf("could not parse audit line (part: %q): %s", f, line)
+		_, err = impersonatedClient.CoreV1().Pods(namespace).List(metav1.ListOptions{})
+		framework.ExpectNoError(err, "failed to list pods")
+
+		expectEvents(f, []utils.AuditEvent{
+			{
+				Level:              auditinternal.LevelRequest,
+				Stage:              auditinternal.StageResponseComplete,
+				RequestURI:         fmt.Sprintf("/api/v1/namespaces/%s/pods", namespace),
+				Verb:               "list",
+				Code:               200,
+				User:               auditTestUser,
+				ImpersonatedUser:   "superman",
+				ImpersonatedGroups: "system:masters",
+				Resource:           "pods",
+				Namespace:          namespace,
+				RequestObject:      false,
+				ResponseObject:     false,
+				AuthorizeDecision:  "allow",
+			},
+		})
+	})
+
+})
+
+func expectEvents(f *framework.Framework, expectedEvents []utils.AuditEvent) {
+	// The default flush timeout is 30 seconds, therefore it should be enough to retry once
+	// to find all expected events. However, we're waiting for 5 minutes to avoid flakes.
+	pollingInterval := 30 * time.Second
+	pollingTimeout := 5 * time.Minute
+	err := wait.Poll(pollingInterval, pollingTimeout, func() (bool, error) {
+		// Fetch the log stream.
+		stream, err := f.ClientSet.CoreV1().RESTClient().Get().AbsPath("/logs/kube-apiserver-audit.log").Stream()
+		if err != nil {
+			return false, err
 		}
-		value := strings.Trim(parts[1], "\"")
-		switch parts[0] {
-		case "method":
-			event.method = value
-		case "namespace":
-			event.namespace = value
-		case "uri":
-			event.uri = value
-		case "response":
-			event.response = value
+		defer stream.Close()
+		missingReport, err := utils.CheckAuditLines(stream, expectedEvents, auditv1.SchemeGroupVersion)
+		if err != nil {
+			framework.Logf("Failed to observe audit events: %v", err)
+		} else if len(missingReport.MissingEvents) > 0 {
+			framework.Logf(missingReport.String())
 		}
-	}
-	return event, nil
+		return len(missingReport.MissingEvents) == 0, nil
+	})
+	framework.ExpectNoError(err, "after %v failed to observe audit events", pollingTimeout)
 }
