@@ -22,6 +22,7 @@ package e2enode
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -42,7 +43,7 @@ import (
 	commontest "k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2econfig "k8s.io/kubernetes/test/e2e/framework/config"
-	"k8s.io/kubernetes/test/e2e/framework/testfiles"
+	e2etestfiles "k8s.io/kubernetes/test/e2e/framework/testfiles"
 	"k8s.io/kubernetes/test/e2e/generated"
 	"k8s.io/kubernetes/test/e2e_node/services"
 	system "k8s.io/system-validators/validators"
@@ -52,7 +53,7 @@ import (
 	morereporters "github.com/onsi/ginkgo/reporters"
 	"github.com/onsi/gomega"
 	"github.com/spf13/pflag"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 var e2es *services.E2EServices
@@ -79,11 +80,12 @@ func registerNodeFlags(flags *flag.FlagSet) {
 	flags.StringVar(&framework.TestContext.ImageDescription, "image-description", "", "The description of the image which the test will be running on.")
 	flags.StringVar(&framework.TestContext.SystemSpecName, "system-spec-name", "", "The name of the system spec (e.g., gke) that's used in the node e2e test. The system specs are in test/e2e_node/system/specs/. This is used by the test framework to determine which tests to run for validating the system requirements.")
 	flags.Var(cliflag.NewMapStringString(&framework.TestContext.ExtraEnvs), "extra-envs", "The extra environment variables needed for node e2e tests. Format: a list of key=value pairs, e.g., env1=val1,env2=val2")
+	flags.StringVar(&framework.TestContext.SriovdpConfigMapFile, "sriovdp-configmap-file", "", "The name of the SRIOV device plugin Config Map to load.")
 }
 
 func init() {
 	// Enable bindata file lookup as fallback.
-	testfiles.AddFileSource(testfiles.BindataFileSource{
+	e2etestfiles.AddFileSource(e2etestfiles.BindataFileSource{
 		Asset:      generated.Asset,
 		AssetNames: generated.AssetNames,
 	})
@@ -302,12 +304,12 @@ func updateTestContext() error {
 
 // getNode gets node object from the apiserver.
 func getNode(c *clientset.Clientset) (*v1.Node, error) {
-	nodes, err := c.CoreV1().Nodes().List(metav1.ListOptions{})
+	nodes, err := c.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	framework.ExpectNoError(err, "should be able to list nodes.")
 	if nodes == nil {
 		return nil, fmt.Errorf("the node list is nil")
 	}
-	gomega.Expect(len(nodes.Items) > 1).NotTo(gomega.BeTrue(), "the number of nodes is more than 1.")
+	framework.ExpectEqual(len(nodes.Items) > 1, false, "the number of nodes is more than 1.")
 	if len(nodes.Items) == 0 {
 		return nil, fmt.Errorf("empty node list: %+v", nodes)
 	}

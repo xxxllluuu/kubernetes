@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"sync"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -127,7 +127,7 @@ func (c *assumeCache) objInfoIndexFunc(obj interface{}) ([]string, error) {
 	return c.indexFunc(objInfo.latestObj)
 }
 
-// NewAssumeCache creates an assume cache for genernal objects.
+// NewAssumeCache creates an assume cache for general objects.
 func NewAssumeCache(informer cache.SharedIndexInformer, description, indexName string, indexFunc cache.IndexFunc) AssumeCache {
 	c := &assumeCache{
 		description: description,

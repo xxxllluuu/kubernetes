@@ -38,6 +38,7 @@ KUBECTL="${KUBE_ROOT}/cluster/kubectl.sh"
 KUBEMARK_DIRECTORY="${KUBE_ROOT}/test/kubemark"
 RESOURCE_DIRECTORY="${KUBEMARK_DIRECTORY}/resources"
 LOCAL_KUBECONFIG="${RESOURCE_DIRECTORY}/kubeconfig.kubemark"
+INTERNAL_KUBECONFIG="${RESOURCE_DIRECTORY}/kubeconfig-internal.kubemark"
 
 # Generate a random 6-digit alphanumeric tag for the kubemark image.
 # Used to uniquify image builds across different invocations of this script.
@@ -96,12 +97,12 @@ function create-kube-hollow-node-resources {
   # It's bad that all component shares the same kubeconfig.
   # TODO(https://github.com/kubernetes/kubernetes/issues/79883): Migrate all components to separate credentials.
   "${KUBECTL}" create secret generic "kubeconfig" --type=Opaque --namespace="kubemark" \
-    --from-file=kubelet.kubeconfig="${LOCAL_KUBECONFIG}" \
-    --from-file=kubeproxy.kubeconfig="${LOCAL_KUBECONFIG}" \
-    --from-file=npd.kubeconfig="${LOCAL_KUBECONFIG}" \
-    --from-file=heapster.kubeconfig="${LOCAL_KUBECONFIG}" \
-    --from-file=cluster_autoscaler.kubeconfig="${LOCAL_KUBECONFIG}" \
-    --from-file=dns.kubeconfig="${LOCAL_KUBECONFIG}"
+    --from-file=kubelet.kubeconfig="${HOLLOWNODE_KUBECONFIG}" \
+    --from-file=kubeproxy.kubeconfig="${HOLLOWNODE_KUBECONFIG}" \
+    --from-file=npd.kubeconfig="${HOLLOWNODE_KUBECONFIG}" \
+    --from-file=heapster.kubeconfig="${HOLLOWNODE_KUBECONFIG}" \
+    --from-file=cluster_autoscaler.kubeconfig="${HOLLOWNODE_KUBECONFIG}" \
+    --from-file=dns.kubeconfig="${HOLLOWNODE_KUBECONFIG}"
 
   # Create addon pods.
   # Heapster.
@@ -224,12 +225,37 @@ function start-hollow-nodes {
   wait-for-hollow-nodes-to-run-or-timeout
 }
 
+# Annotates the node objects in the kubemark cluster to make their size
+# similar to regular nodes.
+# TODO(#90833): Replace this with image preloading from ClusterLoader to better
+# reflect the reality in kubemark tests.
+function resize-node-objects {
+  if [[ -z "$KUBEMARK_NODE_OBJECT_SIZE_BYTES" ]]; then
+    return 0
+  fi
+
+  annotation_size_bytes="${KUBEMARK_NODE_OBJECT_SIZE_BYTES}"
+  echo "Annotating node objects with ${annotation_size_bytes} byte label"
+  label=$( (< /dev/urandom tr -dc 'a-zA-Z0-9' | fold -w "$annotation_size_bytes"; true) | head -n 1)
+  "${KUBECTL}" --kubeconfig="${LOCAL_KUBECONFIG}" get nodes -o name \
+    | xargs -n10 -P100 -r -I% "${KUBECTL}" --kubeconfig="${LOCAL_KUBECONFIG}" annotate --overwrite % label="$label" > /dev/null
+  echo "Annotating node objects completed"
+}
+
+
 detect-project &> /dev/null
 create-kubemark-master
 
-MASTER_IP=$(grep server "$LOCAL_KUBECONFIG" | awk -F "/" '{print $3}')
+if [ -f "${INTERNAL_KUBECONFIG}" ]; then
+    HOLLOWNODE_KUBECONFIG="${INTERNAL_KUBECONFIG}"
+else
+    HOLLOWNODE_KUBECONFIG="${LOCAL_KUBECONFIG}"
+fi
+
+MASTER_IP=$(grep server "${HOLLOWNODE_KUBECONFIG}" | awk -F "/" '{print $3}')
 
 start-hollow-nodes
+resize-node-objects
 
 echo ""
 echo "Master IP: ${MASTER_IP}"

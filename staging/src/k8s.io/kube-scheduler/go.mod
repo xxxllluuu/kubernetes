@@ -5,8 +5,11 @@ module k8s.io/kube-scheduler
 go 1.13
 
 require (
+	github.com/google/go-cmp v0.4.0
+	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/component-base v0.0.0
+	sigs.k8s.io/yaml v1.2.0
 )
 
 replace (

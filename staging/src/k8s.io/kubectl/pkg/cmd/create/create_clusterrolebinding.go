@@ -48,7 +48,7 @@ func NewCmdCreateClusterRoleBinding(f cmdutil.Factory, ioStreams genericclioptio
 	}
 
 	cmd := &cobra.Command{
-		Use:                   "clusterrolebinding NAME --clusterrole=NAME [--user=username] [--group=groupname] [--serviceaccount=namespace:serviceaccountname] [--dry-run]",
+		Use:                   "clusterrolebinding NAME --clusterrole=NAME [--user=username] [--group=groupname] [--serviceaccount=namespace:serviceaccountname] [--dry-run=server|client|none]",
 		DisableFlagsInUseLine: true,
 		Short:                 i18n.T("Create a ClusterRoleBinding for a particular ClusterRole"),
 		Long:                  clusterRoleBindingLong,
@@ -69,6 +69,7 @@ func NewCmdCreateClusterRoleBinding(f cmdutil.Factory, ioStreams genericclioptio
 	cmd.Flags().StringArray("user", []string{}, "Usernames to bind to the clusterrole")
 	cmd.Flags().StringArray("group", []string{}, "Groups to bind to the clusterrole")
 	cmd.Flags().StringArray("serviceaccount", []string{}, "Service accounts to bind to the clusterrole, in the format <namespace>:<name>")
+	cmdutil.AddFieldManagerFlagVar(cmd, &o.CreateSubcommandOptions.FieldManager, "kubectl-create")
 	return cmd
 }
 

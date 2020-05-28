@@ -22,9 +22,7 @@ import (
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/scheduler/algorithm/predicates"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
-	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
 )
 
 func TestNodeUnschedulable(t *testing.T) {
@@ -42,7 +40,7 @@ func TestNodeUnschedulable(t *testing.T) {
 					Unschedulable: true,
 				},
 			},
-			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, predicates.ErrNodeUnschedulable.GetReason()),
+			wantStatus: framework.NewStatus(framework.UnschedulableAndUnresolvable, ErrReasonUnschedulable),
 		},
 		{
 			name: "Schedule pod to normal node",
@@ -74,7 +72,7 @@ func TestNodeUnschedulable(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		nodeInfo := schedulernodeinfo.NewNodeInfo()
+		nodeInfo := framework.NewNodeInfo()
 		nodeInfo.SetNode(test.node)
 
 		p, _ := New(nil, nil)

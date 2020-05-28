@@ -100,12 +100,12 @@ func (mfc *monitorFakeCmd) CombinedOutput() ([]byte, error) {
 		return []byte("iptables v1.6.2"), nil
 	}
 
-	if len(mfc.args) != 6 || mfc.args[0] != WaitString || mfc.args[1] != WaitSecondsValue || mfc.args[4] != "-t" {
+	if len(mfc.args) != 8 || mfc.args[0] != WaitString || mfc.args[1] != WaitSecondsValue || mfc.args[2] != WaitIntervalString || mfc.args[3] != WaitIntervalUsecondsValue || mfc.args[6] != "-t" {
 		panic(fmt.Sprintf("bad args %#v", mfc.args))
 	}
-	op := operation(mfc.args[2])
-	chainName := mfc.args[3]
-	tableName := mfc.args[5]
+	op := operation(mfc.args[4])
+	chainName := mfc.args[5]
+	tableName := mfc.args[7]
 
 	mfc.mfe.Lock()
 	defer mfc.mfe.Unlock()
@@ -180,7 +180,7 @@ func (mfc *monitorFakeCmd) Stop() {
 
 func TestIPTablesMonitor(t *testing.T) {
 	mfe := newMonitorFakeExec()
-	ipt := New(mfe, ProtocolIpv4)
+	ipt := New(mfe, ProtocolIPv4)
 
 	var reloads uint32
 	stopCh := make(chan struct{})

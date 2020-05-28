@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	cliflag "k8s.io/component-base/cli/flag"
+	"k8s.io/component-base/metrics"
 	kubectrlmgrconfigv1alpha1 "k8s.io/kube-controller-manager/config/v1alpha1"
 	cmoptions "k8s.io/kubernetes/cmd/controller-manager/app/options"
 	kubecontrollerconfig "k8s.io/kubernetes/cmd/kube-controller-manager/app/config"
@@ -45,7 +46,7 @@ import (
 	// add the kubernetes feature gates
 	_ "k8s.io/kubernetes/pkg/features"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -86,9 +87,11 @@ type KubeControllerManagerOptions struct {
 	InsecureServing *apiserveroptions.DeprecatedInsecureServingOptionsWithLoopback
 	Authentication  *apiserveroptions.DelegatingAuthenticationOptions
 	Authorization   *apiserveroptions.DelegatingAuthorizationOptions
+	Metrics         *metrics.Options
 
-	Master     string
-	Kubeconfig string
+	Master                      string
+	Kubeconfig                  string
+	ShowHiddenMetricsForVersion string
 }
 
 // NewKubeControllerManagerOptions creates a new KubeControllerManagerOptions with a default config.
@@ -175,6 +178,7 @@ func NewKubeControllerManagerOptions() (*KubeControllerManagerOptions, error) {
 		}).WithLoopback(),
 		Authentication: apiserveroptions.NewDelegatingAuthenticationOptions(),
 		Authorization:  apiserveroptions.NewDelegatingAuthorizationOptions(),
+		Metrics:        metrics.NewOptions(),
 	}
 
 	s.Authentication.RemoteKubeConfigFileOptional = true
@@ -244,6 +248,7 @@ func (s *KubeControllerManagerOptions) Flags(allControllers []string, disabledBy
 	s.ResourceQuotaController.AddFlags(fss.FlagSet("resourcequota controller"))
 	s.SAController.AddFlags(fss.FlagSet("serviceaccount controller"))
 	s.TTLAfterFinishedController.AddFlags(fss.FlagSet("ttl-after-finished controller"))
+	s.Metrics.AddFlags(fss.FlagSet("metrics"))
 
 	fs := fss.FlagSet("misc")
 	fs.StringVar(&s.Master, "master", s.Master, "The address of the Kubernetes API server (overrides any value in kubeconfig).")
@@ -382,6 +387,7 @@ func (s *KubeControllerManagerOptions) Validate(allControllers []string, disable
 	errs = append(errs, s.InsecureServing.Validate()...)
 	errs = append(errs, s.Authentication.Validate()...)
 	errs = append(errs, s.Authorization.Validate()...)
+	errs = append(errs, s.Metrics.Validate()...)
 
 	// TODO: validate component config, master and kubeconfig
 
@@ -429,6 +435,7 @@ func (s KubeControllerManagerOptions) Config(allControllers []string, disabledBy
 	if err := s.ApplyTo(c); err != nil {
 		return nil, err
 	}
+	s.Metrics.Apply()
 
 	return c, nil
 }

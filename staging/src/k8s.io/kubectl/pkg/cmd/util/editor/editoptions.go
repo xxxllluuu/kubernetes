@@ -28,16 +28,15 @@ import (
 	goruntime "runtime"
 	"strings"
 
-	"github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/spf13/cobra"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
@@ -79,6 +78,8 @@ type EditOptions struct {
 	f                   cmdutil.Factory
 	editPrinterOptions  *editPrinterOptions
 	updatedResultGetter func(data []byte) *resource.Result
+
+	FieldManager string
 }
 
 // NewEditOptions returns an initialized EditOptions instance
@@ -499,7 +500,7 @@ func (o *EditOptions) annotationPatch(update *resource.Info) error {
 	if err != nil {
 		return err
 	}
-	helper := resource.NewHelper(client, mapping)
+	helper := resource.NewHelper(client, mapping).WithFieldManager(o.FieldManager)
 	_, err = helper.Patch(o.CmdNamespace, update.Name, patchType, patch, nil)
 	if err != nil {
 		return err
@@ -629,7 +630,9 @@ func (o *EditOptions) visitToPatch(originalInfos []*resource.Info, patchVisitor 
 			fmt.Fprintf(o.Out, "Patch: %s\n", string(patch))
 		}
 
-		patched, err := resource.NewHelper(info.Client, info.Mapping).Patch(info.Namespace, info.Name, patchType, patch, nil)
+		patched, err := resource.NewHelper(info.Client, info.Mapping).
+			WithFieldManager(o.FieldManager).
+			Patch(info.Namespace, info.Name, patchType, patch, nil)
 		if err != nil {
 			fmt.Fprintln(o.ErrOut, results.addError(err, info))
 			return nil
@@ -646,9 +649,13 @@ func (o *EditOptions) visitToPatch(originalInfos []*resource.Info, patchVisitor 
 
 func (o *EditOptions) visitToCreate(createVisitor resource.Visitor) error {
 	err := createVisitor.Visit(func(info *resource.Info, incomingErr error) error {
-		if err := resource.CreateAndRefresh(info); err != nil {
+		obj, err := resource.NewHelper(info.Client, info.Mapping).
+			WithFieldManager(o.FieldManager).
+			Create(info.Namespace, true, info.Object)
+		if err != nil {
 			return err
 		}
+		info.Refresh(obj, true)
 		printer, err := o.ToPrinter("created")
 		if err != nil {
 			return err
@@ -731,10 +738,6 @@ func (h *editHeader) writeTo(w io.Writer, editMode EditMode) error {
 	return nil
 }
 
-func (h *editHeader) flush() {
-	h.reasons = []editReason{}
-}
-
 // editResults capture the result of an update
 type editResults struct {
 	header    editHeader
@@ -742,8 +745,6 @@ type editResults struct {
 	notfound  int
 	edit      []*resource.Info
 	file      string
-
-	version schema.GroupVersion
 }
 
 func (r *editResults) addError(err error, info *resource.Info) string {

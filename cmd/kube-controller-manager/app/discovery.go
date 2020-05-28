@@ -25,7 +25,7 @@ import (
 
 	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	endpointslicecontroller "k8s.io/kubernetes/pkg/controller/endpointslice"
 	"k8s.io/kubernetes/pkg/features"
 )
@@ -48,6 +48,7 @@ func startEndpointSliceController(ctx ControllerContext) (http.Handler, bool, er
 		ctx.InformerFactory.Discovery().V1beta1().EndpointSlices(),
 		ctx.ComponentConfig.EndpointSliceController.MaxEndpointsPerSlice,
 		ctx.ClientBuilder.ClientOrDie("endpointslice-controller"),
+		ctx.ComponentConfig.EndpointSliceController.EndpointUpdatesBatchPeriod.Duration,
 	).Run(int(ctx.ComponentConfig.EndpointSliceController.ConcurrentServiceEndpointSyncs), ctx.Stop)
 	return nil, true, nil
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package e2enode
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,10 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
-
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"github.com/onsi/ginkgo"
@@ -49,8 +50,13 @@ func makePodToVerifyHugePages(baseName string, hugePagesLimit resource.Quantity)
 		cgroupFsName = cgroupName.ToCgroupfs()
 	}
 
-	// this command takes the expected value and compares it against the actual value for the pod cgroup hugetlb.2MB.limit_in_bytes
-	command := fmt.Sprintf("expected=%v; actual=$(cat /tmp/hugetlb/%v/hugetlb.2MB.limit_in_bytes); if [ \"$expected\" -ne \"$actual\" ]; then exit 1; fi; ", hugePagesLimit.Value(), cgroupFsName)
+	command := ""
+	// this command takes the expected value and compares it against the actual value for the pod cgroup hugetlb.2MB.<LIMIT>
+	if IsCgroup2UnifiedMode() {
+		command = fmt.Sprintf("expected=%v; actual=$(cat /tmp/%v/hugetlb.2MB.max); if [ \"$expected\" -ne \"$actual\" ]; then exit 1; fi; ", hugePagesLimit.Value(), cgroupFsName)
+	} else {
+		command = fmt.Sprintf("expected=%v; actual=$(cat /tmp/hugetlb/%v/hugetlb.2MB.limit_in_bytes); if [ \"$expected\" -ne \"$actual\" ]; then exit 1; fi; ", hugePagesLimit.Value(), cgroupFsName)
+	}
 	framework.Logf("Pod to run command: %v", command)
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -130,7 +136,7 @@ func isHugePageSupported() bool {
 
 // pollResourceAsString polls for a specified resource and capacity from node
 func pollResourceAsString(f *framework.Framework, resourceName string) string {
-	node, err := f.ClientSet.CoreV1().Nodes().Get(framework.TestContext.NodeName, metav1.GetOptions{})
+	node, err := f.ClientSet.CoreV1().Nodes().Get(context.TODO(), framework.TestContext.NodeName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 	amount := amountOfResourceAsString(node, resourceName)
 	framework.Logf("amount of %v: %v", resourceName, amount)
@@ -187,7 +193,7 @@ var _ = SIGDescribe("HugePages [Serial] [Feature:HugePages][NodeFeature:HugePage
 		ginkgo.BeforeEach(func() {
 			ginkgo.By("verifying hugepages are supported")
 			if !isHugePageSupported() {
-				framework.Skipf("skipping test because hugepages are not supported")
+				e2eskipper.Skipf("skipping test because hugepages are not supported")
 				return
 			}
 			ginkgo.By("configuring the host to reserve a number of pre-allocated hugepages")

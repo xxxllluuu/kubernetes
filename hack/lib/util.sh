@@ -208,7 +208,12 @@ kube::util::find-binary-for-platform() {
     locations+=("$location");
   done < <(find "${KUBE_ROOT}/bazel-bin/" -type f -executable \
     \( -path "*/${platform/\//_}*/${lookfor}" -o -path "*/${lookfor}" \) 2>/dev/null || true)
-
+  # search for executables for non-GNU versions of find (eg. BSD)
+  while IFS=$'\n' read -r location; do
+    locations+=("$location");
+  done < <(find "${KUBE_ROOT}/bazel-bin/" -type f -perm -111 \
+    \( -path "*/${platform/\//_}*/${lookfor}" -o -path "*/${lookfor}" \) 2>/dev/null || true)
+  
   # List most recently-updated location.
   local -r bin=$( (ls -t "${locations[@]}" 2>/dev/null || true) | head -1 )
   echo -n "${bin}"
@@ -698,7 +703,10 @@ function kube::util::ensure_dockerized {
 #  SED: The name of the gnu-sed binary
 #
 function kube::util::ensure-gnu-sed {
-  if LANG=C sed --help 2>&1 | grep -q GNU; then
+  # NOTE: the echo below is a workaround to ensure sed is executed before the grep.
+  # see: https://github.com/kubernetes/kubernetes/issues/87251
+  sed_help="$(LANG=C sed --help 2>&1 || true)"
+  if echo "${sed_help}" | grep -q "GNU\|BusyBox"; then
     SED="sed"
   elif command -v gsed &>/dev/null; then
     SED="gsed"

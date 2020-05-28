@@ -36,16 +36,14 @@ func TestValidateToken(t *testing.T) {
 		{"772ef5.6b6baab1d4a0a171", true},
 		{".6b6baab1d4a0a171", false},
 		{"772ef5.", false},
-		{"772ef5.6b6baab1d4a0a171", true},
-		{".6b6baab1d4a0a171", false},
-		{"772ef5.", false},
 		{"abcdef.1234567890123456@foobar", false},
 	}
 	for _, rt := range tests {
 		err := ValidateToken(rt.token, nil).ToAggregate()
 		if (err == nil) != rt.expected {
 			t.Errorf(
-				"failed ValidateToken:\n\texpected: %t\n\t  actual: %t",
+				"failed ValidateToken:\n\ttoken: %q\n\t  expected: %t, got: %t",
+				rt.token,
 				rt.expected,
 				(err == nil),
 			)
@@ -101,21 +99,17 @@ func TestValidateTokenGroups(t *testing.T) {
 func TestValidateNodeRegistrationOptions(t *testing.T) {
 	var tests = []struct {
 		nodeName       string
-		criSocket      string
 		expectedErrors bool
 	}{
-		{"", "/some/path", true},                                                             // node name can't be empty
-		{"INVALID-NODENAME", "/some/path", true},                                             // Upper cases is invalid
-		{"invalid-nodename-", "/some/path", true},                                            // Can't have trailing dashes
-		{"invalid-node?name", "/some/path", true},                                            // Unsupported characters
-		{"valid-nodename", "/some/path", false},                                              // supported
-		{"valid-nodename-with-numbers01234", "/some/path/with/numbers/01234/", false},        // supported, with numbers as well
-		{"valid-nodename", kubeadmapiv1beta2.DefaultUrlScheme + "://" + "/some/path", false}, // supported, with socket url
-		{"valid-nodename", "bla:///some/path", true},                                         // unsupported url scheme
-		{"valid-nodename", ":::", true},                                                      // unparseable url
+		{"", true},                  // node name can't be empty
+		{"INVALID-NODENAME", true},  // Upper cases is invalid
+		{"invalid-nodename-", true}, // Can't have trailing dashes
+		{"invalid-node?name", true}, // Unsupported characters
+		{"valid-nodename", false},   // supported
+		// test cases for criSocket are covered in TestValidateSocketPath
 	}
 	for _, rt := range tests {
-		nro := kubeadm.NodeRegistrationOptions{Name: rt.nodeName, CRISocket: rt.criSocket}
+		nro := kubeadm.NodeRegistrationOptions{Name: rt.nodeName, CRISocket: "/some/path"}
 		actual := ValidateNodeRegistrationOptions(&nro, field.NewPath("nodeRegistration"))
 		actualErrors := len(actual) > 0
 		if actualErrors != rt.expectedErrors {
@@ -197,18 +191,21 @@ func TestValidateIPNetFromString(t *testing.T) {
 		expected       bool
 	}{
 		{"invalid missing CIDR", "", 0, false, false},
+		{"invalid  CIDR", "a", 0, false, false},
 		{"invalid CIDR missing decimal points in IPv4 address and / mask", "1234", 0, false, false},
 		{"invalid CIDR use of letters instead of numbers and / mask", "abc", 0, false, false},
 		{"invalid IPv4 address provided instead of CIDR representation", "1.2.3.4", 0, false, false},
 		{"invalid IPv6 address provided instead of CIDR representation", "2001:db8::1", 0, false, false},
+		{"invalid multiple CIDR provided in a single stack cluster", "2001:db8::1/64,1.2.3.4/24", 0, false, false},
+		{"invalid multiple CIDR provided in a single stack cluster and one invalid subnet", "2001:db8::1/64,a", 0, false, false},
 		{"valid, but IPv4 CIDR too small. At least 10 addresses needed", "10.0.0.16/29", 10, false, false},
 		{"valid, but IPv6 CIDR too small. At least 10 addresses needed", "2001:db8::/125", 10, false, false},
 		{"valid IPv4 CIDR", "10.0.0.16/12", 10, false, true},
 		{"valid IPv6 CIDR", "2001:db8::/98", 10, false, true},
 		// dual-stack:
 		{"invalid missing CIDR", "", 0, true, false},
-		{"invalid only an IPv4 CIDR specified", "10.0.0.16/12", 10, true, false},
-		{"invalid only an IPv6 CIDR specified", "2001:db8::/98", 10, true, false},
+		{"valid dual-stack enabled but only an IPv4 CIDR specified", "10.0.0.16/12", 10, true, true},
+		{"valid dual-stack enabled but only an IPv6 CIDR specified", "2001:db8::/98", 10, true, true},
 		{"invalid IPv4 address provided instead of CIDR representation", "1.2.3.4,2001:db8::/98", 0, true, false},
 		{"invalid IPv6 address provided instead of CIDR representation", "2001:db8::1,10.0.0.16/12", 0, true, false},
 		{"valid, but IPv4 CIDR too small. At least 10 addresses needed", "10.0.0.16/29,2001:db8::/98", 10, true, false},
@@ -217,6 +214,8 @@ func TestValidateIPNetFromString(t *testing.T) {
 		{"valid, but only IPv6 family addresses specified. IPv4 CIDR is necessary.", "2001:db8::/98,2005:db8::/98", 10, true, false},
 		{"valid IPv4 and IPv6 CIDR", "10.0.0.16/12,2001:db8::/98", 10, true, true},
 		{"valid IPv6 and IPv4 CIDR", "10.0.0.16/12,2001:db8::/98", 10, true, true},
+		{"invalid IPv6 and IPv4 CIDR with more than 2 subnets", "10.0.0.16/12,2001:db8::/98,192.168.0.0/16", 10, true, false},
+		{"invalid IPv6 and IPv4 CIDR with more than 2 subnets", "10.0.0.16/12,2001:db8::/98,192.168.0.0/16,a.b.c.d/24", 10, true, false},
 	}
 	for _, rt := range tests {
 		actual := ValidateIPNetFromString(rt.subnet, rt.minaddrs, rt.checkDualStack, nil)
@@ -890,6 +889,75 @@ func TestValidateDiscoveryKubeConfigPath(t *testing.T) {
 				rt.expected,
 				(len(actual) == 0),
 			)
+		}
+	}
+}
+
+func TestValidateSocketPath(t *testing.T) {
+	var tests = []struct {
+		name           string
+		criSocket      string
+		expectedErrors bool
+	}{
+		{name: "valid path", criSocket: "/some/path", expectedErrors: false},
+		{name: "valid socket url", criSocket: kubeadmapiv1beta2.DefaultUrlScheme + "://" + "/some/path", expectedErrors: false},
+		{name: "unsupported url scheme", criSocket: "bla:///some/path", expectedErrors: true},
+		{name: "unparseable url", criSocket: ":::", expectedErrors: true},
+		{name: "invalid CRISocket (path is not absolute)", criSocket: "some/path", expectedErrors: true},
+		{name: "empty CRISocket (path is not absolute)", criSocket: "", expectedErrors: true},
+	}
+	for _, tc := range tests {
+		actual := ValidateSocketPath(tc.criSocket, field.NewPath("criSocket"))
+		actualErrors := len(actual) > 0
+		if actualErrors != tc.expectedErrors {
+			t.Errorf("error: socket path: %q\n\texpected: %t\n\t  actual: %t", tc.criSocket, tc.expectedErrors, actualErrors)
+		}
+	}
+}
+
+func TestValidateURLs(t *testing.T) {
+	var tests = []struct {
+		name           string
+		urls           []string
+		requireHTTPS   bool
+		expectedErrors bool
+	}{
+		{
+			name:           "valid urls (https not required)",
+			urls:           []string{"http://example.com", "https://example.org"},
+			requireHTTPS:   false,
+			expectedErrors: false,
+		},
+		{
+			name:           "valid urls (https required)",
+			urls:           []string{"https://example.com", "https://example.org"},
+			requireHTTPS:   true,
+			expectedErrors: false,
+		},
+		{
+			name:           "invalid url (https required)",
+			urls:           []string{"http://example.com", "https://example.org"},
+			requireHTTPS:   true,
+			expectedErrors: true,
+		},
+		{
+			name:           "URL parse error",
+			urls:           []string{"::://example.com"},
+			requireHTTPS:   false,
+			expectedErrors: true,
+		},
+		{
+			name:           "URL without scheme",
+			urls:           []string{"example.com"},
+			requireHTTPS:   false,
+			expectedErrors: true,
+		},
+	}
+	for _, tc := range tests {
+		actual := ValidateURLs(tc.urls, tc.requireHTTPS, nil)
+		actualErrors := len(actual) > 0
+		if actualErrors != tc.expectedErrors {
+			t.Errorf("error:\n\texpected: %t\n\t  actual: %t", tc.expectedErrors, actualErrors)
 		}
 	}
 }

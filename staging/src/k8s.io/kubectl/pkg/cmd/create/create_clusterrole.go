@@ -17,6 +17,7 @@ limitations under the License.
 package create
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -63,6 +64,7 @@ type CreateClusterRoleOptions struct {
 	*CreateRoleOptions
 	NonResourceURLs []string
 	AggregationRule map[string]string
+	FieldManager    string
 }
 
 // NewCmdCreateClusterRole initializes and returns new ClusterRoles command
@@ -72,7 +74,7 @@ func NewCmdCreateClusterRole(f cmdutil.Factory, ioStreams genericclioptions.IOSt
 		AggregationRule:   map[string]string{},
 	}
 	cmd := &cobra.Command{
-		Use:                   "clusterrole NAME --verb=verb --resource=resource.group [--resource-name=resourcename] [--dry-run]",
+		Use:                   "clusterrole NAME --verb=verb --resource=resource.group [--resource-name=resourcename] [--dry-run=server|client|none]",
 		DisableFlagsInUseLine: true,
 		Short:                 clusterRoleLong,
 		Long:                  clusterRoleLong,
@@ -94,6 +96,7 @@ func NewCmdCreateClusterRole(f cmdutil.Factory, ioStreams genericclioptions.IOSt
 	cmd.Flags().StringSlice("resource", []string{}, "Resource that the rule applies to")
 	cmd.Flags().StringArrayVar(&c.ResourceNames, "resource-name", c.ResourceNames, "Resource in the white list that the rule applies to, repeat this flag for multiple items")
 	cmd.Flags().Var(cliflag.NewMapStringString(&c.AggregationRule), "aggregation-rule", "An aggregation label selector for combining ClusterRoles.")
+	cmdutil.AddFieldManagerFlagVar(cmd, &c.FieldManager, "kubectl-create")
 
 	return cmd
 }
@@ -199,8 +202,18 @@ func (c *CreateClusterRoleOptions) RunCreateRole() error {
 	}
 
 	// Create ClusterRole.
-	if !c.DryRun {
-		clusterRole, err = c.Client.ClusterRoles().Create(clusterRole)
+	if c.DryRunStrategy != cmdutil.DryRunClient {
+		createOptions := metav1.CreateOptions{}
+		if c.FieldManager != "" {
+			createOptions.FieldManager = c.FieldManager
+		}
+		if c.DryRunStrategy == cmdutil.DryRunServer {
+			if err := c.DryRunVerifier.HasSupport(clusterRole.GroupVersionKind()); err != nil {
+				return err
+			}
+			createOptions.DryRun = []string{metav1.DryRunAll}
+		}
+		clusterRole, err = c.Client.ClusterRoles().Create(context.TODO(), clusterRole, createOptions)
 		if err != nil {
 			return err
 		}

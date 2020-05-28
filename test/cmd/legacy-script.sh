@@ -41,7 +41,6 @@ source "${KUBE_ROOT}/test/cmd/discovery.sh"
 source "${KUBE_ROOT}/test/cmd/exec.sh"
 source "${KUBE_ROOT}/test/cmd/generic-resources.sh"
 source "${KUBE_ROOT}/test/cmd/get.sh"
-source "${KUBE_ROOT}/test/cmd/kubeadm.sh"
 source "${KUBE_ROOT}/test/cmd/kubeconfig.sh"
 source "${KUBE_ROOT}/test/cmd/node-management.sh"
 source "${KUBE_ROOT}/test/cmd/plugins.sh"
@@ -416,7 +415,7 @@ runTests() {
     fi
   }
 
-   if [[ -n "${WHAT-}" ]]; then
+  if [[ -n "${WHAT-}" ]]; then
     for pkg in ${WHAT}
     do
       # running of kubeadm is captured in hack/make-targets/test-cmd.sh
@@ -439,6 +438,18 @@ runTests() {
   #######################
 
   record_command run_kubectl_config_set_tests
+
+  ##############################
+  # kubectl config set-cluster #
+  ##############################
+
+  record_command run_kubectl_config_set_cluster_tests
+
+  ##################################
+  # kubectl config set-credentials #
+  ##################################
+
+  record_command run_kubectl_config_set_credentials_tests
 
   #######################
   # kubectl local proxy #
@@ -505,6 +516,7 @@ runTests() {
 
   if kube::test::if_supports_resource "${pods}" ; then
     record_command run_kubectl_apply_tests
+    record_command run_kubectl_server_side_apply_tests
     record_command run_kubectl_run_tests
     record_command run_kubectl_create_filter_tests
   fi
@@ -571,15 +583,6 @@ runTests() {
   if kube::test::if_supports_resource "${customresourcedefinitions}" ; then
     record_command run_crd_tests
   fi
-
-  #################
-  # Run cmd w img #
-  #################
-
-  if kube::test::if_supports_resource "${deployments}" ; then
-    record_command run_cmd_with_img_tests
-  fi
-
 
   #####################################
   # Recursive Resources via directory #
@@ -817,6 +820,14 @@ runTests() {
 
   # kubectl auth reconcile
   if kube::test::if_supports_resource "${clusterroles}" ; then
+    # dry-run command
+    kubectl auth reconcile --dry-run=client "${kube_flags[@]}" -f test/fixtures/pkg/kubectl/cmd/auth/rbac-resource-plus.yaml
+    kube::test::get_object_assert 'rolebindings -n some-other-random -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" ''
+    kube::test::get_object_assert 'roles -n some-other-random -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" ''
+    kube::test::get_object_assert 'clusterrolebindings -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" ''
+    kube::test::get_object_assert 'clusterroles -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" ''
+
+    # command
     kubectl auth reconcile "${kube_flags[@]}" -f test/fixtures/pkg/kubectl/cmd/auth/rbac-resource-plus.yaml
     kube::test::get_object_assert 'rolebindings -n some-other-random -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" 'testing-RB:'
     kube::test::get_object_assert 'roles -n some-other-random -l test-cmd=auth' "{{range.items}}{{$id_field}}:{{end}}" 'testing-R:'

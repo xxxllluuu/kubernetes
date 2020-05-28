@@ -5,14 +5,20 @@ load(
     go_test = "go_test_conditional_pure",
 )
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//staging/src/k8s.io/component-base/version:def.bzl", "version_x_defs")
 
 go_test(
     name = "go_default_test",
-    srcs = ["e2e_test.go"],
+    srcs = [
+        "e2e_test.go",
+        "viperconfig_test.go",
+    ],
     out = "e2e.test",
     embed = [":go_default_library"],
     tags = ["e2e"],
+    x_defs = version_x_defs(),
     deps = [
+        "//staging/src/k8s.io/component-base/version:go_default_library",
         "//test/e2e/apimachinery:go_default_library",
         "//test/e2e/apps:go_default_library",
         "//test/e2e/auth:go_default_library",
@@ -22,7 +28,6 @@ go_test(
         "//test/e2e/framework:go_default_library",
         "//test/e2e/framework/config:go_default_library",
         "//test/e2e/framework/testfiles:go_default_library",
-        "//test/e2e/framework/viperconfig:go_default_library",
         "//test/e2e/generated:go_default_library",
         "//test/e2e/instrumentation:go_default_library",
         "//test/e2e/kubectl:go_default_library",
@@ -37,6 +42,8 @@ go_test(
         "//test/e2e/ui:go_default_library",
         "//test/e2e/windows:go_default_library",
         "//test/utils/image:go_default_library",
+        "//vendor/github.com/stretchr/testify/require:go_default_library",
+        "//vendor/gopkg.in/yaml.v2:go_default_library",
     ],
 )
 
@@ -48,6 +55,7 @@ go_library(
         "gke_local_ssd.go",
         "gke_node_pools.go",
         "suites.go",
+        "viperconfig.go",
     ],
     importpath = "k8s.io/kubernetes/test/e2e",
     deps = [
@@ -68,6 +76,7 @@ go_library(
         "//test/e2e/framework:go_default_library",
         "//test/e2e/framework/auth:go_default_library",
         "//test/e2e/framework/kubectl:go_default_library",
+        "//test/e2e/framework/manifest:go_default_library",
         "//test/e2e/framework/metrics:go_default_library",
         "//test/e2e/framework/node:go_default_library",
         "//test/e2e/framework/pod:go_default_library",
@@ -77,15 +86,17 @@ go_library(
         "//test/e2e/framework/providers/kubemark:go_default_library",
         "//test/e2e/framework/providers/openstack:go_default_library",
         "//test/e2e/framework/providers/vsphere:go_default_library",
+        "//test/e2e/framework/skipper:go_default_library",
         "//test/e2e/framework/testfiles:go_default_library",
-        "//test/e2e/manifest:go_default_library",
         "//test/e2e/reporters:go_default_library",
         "//test/utils:go_default_library",
         "//vendor/github.com/onsi/ginkgo:go_default_library",
         "//vendor/github.com/onsi/ginkgo/config:go_default_library",
         "//vendor/github.com/onsi/ginkgo/reporters:go_default_library",
         "//vendor/github.com/onsi/gomega:go_default_library",
-        "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/github.com/pkg/errors:go_default_library",
+        "//vendor/github.com/spf13/viper:go_default_library",
+        "//vendor/k8s.io/klog/v2:go_default_library",
         "//vendor/k8s.io/utils/net:go_default_library",
     ],
 )
@@ -113,7 +124,6 @@ filegroup(
         "//test/e2e/instrumentation:all-srcs",
         "//test/e2e/kubectl:all-srcs",
         "//test/e2e/lifecycle:all-srcs",
-        "//test/e2e/manifest:all-srcs",
         "//test/e2e/network:all-srcs",
         "//test/e2e/node:all-srcs",
         "//test/e2e/perftype:all-srcs",

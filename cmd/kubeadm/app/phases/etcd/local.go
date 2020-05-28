@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -103,6 +103,22 @@ func RemoveStackedEtcdMemberFromCluster(client clientset.Interface, cfg *kubeadm
 		return err
 	}
 
+	members, err := etcdClient.ListMembers()
+	if err != nil {
+		return err
+	}
+	// If this is the only remaining stacked etcd member in the cluster, calling RemoveMember()
+	// is not needed.
+	if len(members) == 1 {
+		etcdClientAddress := etcdutil.GetClientURL(&cfg.LocalAPIEndpoint)
+		for _, endpoint := range etcdClient.Endpoints {
+			if endpoint == etcdClientAddress {
+				klog.V(1).Info("[etcd] This is the only remaining etcd member in the etcd cluster, skip removing it")
+				return nil
+			}
+		}
+	}
+
 	// notifies the other members of the etcd cluster about the removing member
 	etcdPeerAddress := etcdutil.GetPeerURL(&cfg.LocalAPIEndpoint)
 
@@ -113,7 +129,7 @@ func RemoveStackedEtcdMemberFromCluster(client clientset.Interface, cfg *kubeadm
 	}
 
 	klog.V(1).Infof("[etcd] removing etcd member: %s, id: %d", etcdPeerAddress, id)
-	members, err := etcdClient.RemoveMember(id)
+	members, err = etcdClient.RemoveMember(id)
 	if err != nil {
 		return err
 	}
@@ -181,18 +197,23 @@ func GetEtcdPodSpec(cfg *kubeadmapi.ClusterConfiguration, endpoint *kubeadmapi.A
 	}
 	// probeHostname returns the correct localhost IP address family based on the endpoint AdvertiseAddress
 	probeHostname, probePort, probeScheme := staticpodutil.GetEtcdProbeEndpoint(&cfg.Etcd, utilsnet.IsIPv6String(endpoint.AdvertiseAddress))
-	return staticpodutil.ComponentPod(v1.Container{
-		Name:            kubeadmconstants.Etcd,
-		Command:         getEtcdCommand(cfg, endpoint, nodeName, initialCluster),
-		Image:           images.GetEtcdImage(cfg),
-		ImagePullPolicy: v1.PullIfNotPresent,
-		// Mount the etcd datadir path read-write so etcd can store data in a more persistent manner
-		VolumeMounts: []v1.VolumeMount{
-			staticpodutil.NewVolumeMount(etcdVolumeName, cfg.Etcd.Local.DataDir, false),
-			staticpodutil.NewVolumeMount(certsVolumeName, cfg.CertificatesDir+"/etcd", false),
+	return staticpodutil.ComponentPod(
+		v1.Container{
+			Name:            kubeadmconstants.Etcd,
+			Command:         getEtcdCommand(cfg, endpoint, nodeName, initialCluster),
+			Image:           images.GetEtcdImage(cfg),
+			ImagePullPolicy: v1.PullIfNotPresent,
+			// Mount the etcd datadir path read-write so etcd can store data in a more persistent manner
+			VolumeMounts: []v1.VolumeMount{
+				staticpodutil.NewVolumeMount(etcdVolumeName, cfg.Etcd.Local.DataDir, false),
+				staticpodutil.NewVolumeMount(certsVolumeName, cfg.CertificatesDir+"/etcd", false),
+			},
+			LivenessProbe: staticpodutil.LivenessProbe(probeHostname, "/health", probePort, probeScheme),
 		},
-		LivenessProbe: staticpodutil.LivenessProbe(probeHostname, "/health", probePort, probeScheme),
-	}, etcdMounts)
+		etcdMounts,
+		// etcd will listen on the advertise address of the API server, in a different port (2379)
+		map[string]string{kubeadmconstants.EtcdAdvertiseClientUrlsAnnotationKey: etcdutil.GetClientURL(endpoint)},
+	)
 }
 
 // getEtcdCommand builds the right etcd command from the given config object

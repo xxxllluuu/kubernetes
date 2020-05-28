@@ -17,6 +17,7 @@ limitations under the License.
 package upgrades
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -31,8 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubernetes/test/e2e/framework"
-	e2esset "k8s.io/kubernetes/test/e2e/framework/statefulset"
-	"k8s.io/kubernetes/test/e2e/framework/testfiles"
+	e2estatefulset "k8s.io/kubernetes/test/e2e/framework/statefulset"
+	e2etestfiles "k8s.io/kubernetes/test/e2e/framework/testfiles"
 )
 
 const mysqlManifestPath = "test/e2e/testing-manifests/statefulset/mysql-upgrade"
@@ -60,12 +61,12 @@ func (MySQLUpgradeTest) Skip(upgCtx UpgradeContext) bool {
 }
 
 func mysqlKubectlCreate(ns, file string) {
-	input := string(testfiles.ReadOrDie(filepath.Join(mysqlManifestPath, file)))
+	input := string(e2etestfiles.ReadOrDie(filepath.Join(mysqlManifestPath, file)))
 	framework.RunKubectlOrDieInput(ns, input, "create", "-f", "-", fmt.Sprintf("--namespace=%s", ns))
 }
 
 func (t *MySQLUpgradeTest) getServiceIP(f *framework.Framework, ns, svcName string) string {
-	svc, err := f.ClientSet.CoreV1().Services(ns).Get(svcName, metav1.GetOptions{})
+	svc, err := f.ClientSet.CoreV1().Services(ns).Get(context.TODO(), svcName, metav1.GetOptions{})
 	framework.ExpectNoError(err)
 	ingress := svc.Status.LoadBalancer.Ingress
 	if len(ingress) == 0 {
@@ -87,7 +88,7 @@ func (t *MySQLUpgradeTest) Setup(f *framework.Framework) {
 	mysqlKubectlCreate(ns, "configmap.yaml")
 
 	ginkgo.By("Creating a mysql StatefulSet")
-	e2esset.CreateStatefulSet(f.ClientSet, mysqlManifestPath, ns)
+	e2estatefulset.CreateStatefulSet(f.ClientSet, mysqlManifestPath, ns)
 
 	ginkgo.By("Creating a mysql-test-server deployment")
 	mysqlKubectlCreate(ns, "tester.yaml")

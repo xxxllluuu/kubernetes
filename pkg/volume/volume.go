@@ -19,7 +19,7 @@ package volume
 import (
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -103,8 +103,13 @@ type Attributes struct {
 
 // MounterArgs provides more easily extensible arguments to Mounter
 type MounterArgs struct {
-	FsGroup     *int64
-	DesiredSize *resource.Quantity
+	// When FsUser is set, the ownership of the volume will be modified to be
+	// owned and writable by FsUser. Otherwise, there is no side effects.
+	// Currently only supported with projected service account tokens.
+	FsUser              *int64
+	FsGroup             *int64
+	FSGroupChangePolicy *v1.PodFSGroupChangePolicy
+	DesiredSize         *resource.Quantity
 }
 
 // Mounter interface provides methods to set up/mount the volume.
@@ -125,13 +130,18 @@ type Mounter interface {
 
 	// SetUp prepares and mounts/unpacks the volume to a
 	// self-determined directory path. The mount point and its
-	// content should be owned by 'fsGroup' so that it can be
+	// content should be owned by `fsUser` or 'fsGroup' so that it can be
 	// accessed by the pod. This may be called more than once, so
 	// implementations must be idempotent.
+	// It could return following types of errors:
+	//   - TransientOperationFailure
+	//   - UncertainProgressError
+	//   - Error of any other type should be considered a final error
 	SetUp(mounterArgs MounterArgs) error
+
 	// SetUpAt prepares and mounts/unpacks the volume to the
 	// specified directory path, which may or may not exist yet.
-	// The mount point and its content should be owned by
+	// The mount point and its content should be owned by `fsUser`
 	// 'fsGroup' so that it can be accessed by the pod. This may
 	// be called more than once, so implementations must be
 	// idempotent.
@@ -247,6 +257,10 @@ type DeviceMounter interface {
 	// MountDevice mounts the disk to a global path which
 	// individual pods can then bind mount
 	// Note that devicePath can be empty if the volume plugin does not implement any of Attach and WaitForAttach methods.
+	// It could return following types of errors:
+	//   - TransientOperationFailure
+	//   - UncertainProgressError
+	//   - Error of any other type should be considered a final error
 	MountDevice(spec *Spec, devicePath string, deviceMountPath string) error
 }
 

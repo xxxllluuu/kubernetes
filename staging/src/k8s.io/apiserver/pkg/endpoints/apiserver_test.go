@@ -41,7 +41,7 @@ import (
 
 	fuzzer "k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	apierrs "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	metainternalversionscheme "k8s.io/apimachinery/pkg/apis/meta/internalversion/scheme"
@@ -147,6 +147,8 @@ func addGrouplessTypes() {
 	scheme.AddKnownTypes(grouplessInternalGroupVersion,
 		&genericapitesting.Simple{}, &genericapitesting.SimpleList{}, &metav1.ExportOptions{},
 		&genericapitesting.SimpleGetOptions{}, &genericapitesting.SimpleRoot{})
+
+	utilruntime.Must(genericapitesting.RegisterConversions(scheme))
 }
 
 func addTestTypes() {
@@ -166,6 +168,8 @@ func addTestTypes() {
 	scheme.AddKnownTypes(testGroup2Version, &genericapitesting.SimpleXGSubresource{}, &metav1.ExportOptions{})
 	scheme.AddKnownTypes(testInternalGroup2Version, &genericapitesting.SimpleXGSubresource{}, &metav1.ExportOptions{})
 	metav1.AddToGroupVersion(scheme, testGroupVersion)
+
+	utilruntime.Must(genericapitesting.RegisterConversions(scheme))
 }
 
 func addNewTestTypes() {
@@ -175,6 +179,8 @@ func addNewTestTypes() {
 		&examplev1.Pod{},
 	)
 	metav1.AddToGroupVersion(scheme, newGroupVersion)
+
+	utilruntime.Must(genericapitesting.RegisterConversions(scheme))
 }
 
 func init() {
@@ -2802,7 +2808,7 @@ func TestGetNamespaceSelfLink(t *testing.T) {
 func TestGetMissing(t *testing.T) {
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
-		errors: map[string]error{"get": apierrs.NewNotFound(schema.GroupResource{Resource: "simples"}, "id")},
+		errors: map[string]error{"get": apierrors.NewNotFound(schema.GroupResource{Resource: "simples"}, "id")},
 	}
 	storage["simple"] = &simpleStorage
 	handler := handle(storage)
@@ -2822,7 +2828,7 @@ func TestGetMissing(t *testing.T) {
 func TestGetRetryAfter(t *testing.T) {
 	storage := map[string]rest.Storage{}
 	simpleStorage := SimpleRESTStorage{
-		errors: map[string]error{"get": apierrs.NewServerTimeout(schema.GroupResource{Resource: "simples"}, "id", 2)},
+		errors: map[string]error{"get": apierrors.NewServerTimeout(schema.GroupResource{Resource: "simples"}, "id", 2)},
 	}
 	storage["simple"] = &simpleStorage
 	handler := handle(storage)
@@ -2925,7 +2931,7 @@ func TestConnectResponderError(t *testing.T) {
 	connectStorage := &ConnecterRESTStorage{}
 	connectStorage.handlerFunc = func() http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			connectStorage.receivedResponder.Error(apierrs.NewForbidden(schema.GroupResource{Resource: "simples"}, itemID, errors.New("you are terminated")))
+			connectStorage.receivedResponder.Error(apierrors.NewForbidden(schema.GroupResource{Resource: "simples"}, itemID, errors.New("you are terminated")))
 		})
 	}
 	storage := map[string]rest.Storage{
@@ -3271,7 +3277,7 @@ func TestDeleteMissing(t *testing.T) {
 	storage := map[string]rest.Storage{}
 	ID := "id"
 	simpleStorage := SimpleRESTStorage{
-		errors: map[string]error{"delete": apierrs.NewNotFound(schema.GroupResource{Resource: "simples"}, ID)},
+		errors: map[string]error{"delete": apierrors.NewNotFound(schema.GroupResource{Resource: "simples"}, ID)},
 	}
 	storage["simple"] = &simpleStorage
 	handler := handle(storage)
@@ -3543,7 +3549,7 @@ func TestUpdateMissing(t *testing.T) {
 	storage := map[string]rest.Storage{}
 	ID := "id"
 	simpleStorage := SimpleRESTStorage{
-		errors: map[string]error{"update": apierrs.NewNotFound(schema.GroupResource{Resource: "simples"}, ID)},
+		errors: map[string]error{"update": apierrors.NewNotFound(schema.GroupResource{Resource: "simples"}, ID)},
 	}
 	storage["simple"] = &simpleStorage
 	handler := handle(storage)
@@ -3581,7 +3587,7 @@ func TestCreateNotFound(t *testing.T) {
 		"simple": &SimpleRESTStorage{
 			// storage.Create can fail with not found error in theory.
 			// See http://pr.k8s.io/486#discussion_r15037092.
-			errors: map[string]error{"create": apierrs.NewNotFound(schema.GroupResource{Resource: "simples"}, "id")},
+			errors: map[string]error{"create": apierrors.NewNotFound(schema.GroupResource{Resource: "simples"}, "id")},
 		},
 	})
 	server := httptest.NewServer(handler)
@@ -4217,7 +4223,7 @@ func expectAPIStatus(t *testing.T, method, url string, data []byte, code int) *m
 func TestDelayReturnsError(t *testing.T) {
 	storage := SimpleRESTStorage{
 		injectedFunction: func(obj runtime.Object) (runtime.Object, error) {
-			return nil, apierrs.NewAlreadyExists(schema.GroupResource{Resource: "foos"}, "bar")
+			return nil, apierrors.NewAlreadyExists(schema.GroupResource{Resource: "foos"}, "bar")
 		},
 	}
 	handler := handle(map[string]rest.Storage{"foo": &storage})

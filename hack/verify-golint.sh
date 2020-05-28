@@ -14,6 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This script checks coding style for go language files in each
+# Kubernetes package by golint.
+# Usage: `hack/verify-golint.sh`.
+
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -29,9 +33,11 @@ kube::golang::verify_go_version
 export GOBIN="${KUBE_OUTPUT_BINPATH}"
 PATH="${GOBIN}:${PATH}"
 
-# Install golint from vendor
-echo 'installing golint from vendor'
-go install k8s.io/kubernetes/vendor/golang.org/x/lint/golint
+# Install golint
+echo 'installing golint'
+pushd "${KUBE_ROOT}/hack/tools" >/dev/null
+  GO111MODULE=on go install golang.org/x/lint/golint
+popd >/dev/null
 
 
 cd "${KUBE_ROOT}"

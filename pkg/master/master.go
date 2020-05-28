@@ -17,6 +17,7 @@ limitations under the License.
 package master
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -87,7 +88,7 @@ import (
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	nodeutil "k8s.io/kubernetes/pkg/util/node"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	// RESTStorage installers
 	admissionregistrationrest "k8s.io/kubernetes/pkg/registry/admissionregistration/rest"
@@ -189,6 +190,12 @@ type ExtraConfig struct {
 
 	ServiceAccountIssuer        serviceaccount.TokenGenerator
 	ServiceAccountMaxExpiration time.Duration
+	ExtendExpiration            bool
+
+	// ServiceAccountIssuerDiscovery
+	ServiceAccountIssuerURL  string
+	ServiceAccountJWKSURI    string
+	ServiceAccountPublicKeys []interface{}
 
 	VersionedInformers informers.SharedInformerFactory
 }
@@ -341,6 +348,39 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		routes.Logs{}.Install(s.Handler.GoRestfulContainer)
 	}
 
+	if utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountIssuerDiscovery) {
+		// Metadata and keys are expected to only change across restarts at present,
+		// so we just marshal immediately and serve the cached JSON bytes.
+		md, err := serviceaccount.NewOpenIDMetadata(
+			c.ExtraConfig.ServiceAccountIssuerURL,
+			c.ExtraConfig.ServiceAccountJWKSURI,
+			c.GenericConfig.ExternalAddress,
+			c.ExtraConfig.ServiceAccountPublicKeys,
+		)
+		if err != nil {
+			// If there was an error, skip installing the endpoints and log the
+			// error, but continue on. We don't return the error because the
+			// metadata responses require additional, backwards incompatible
+			// validation of command-line options.
+			msg := fmt.Sprintf("Could not construct pre-rendered responses for"+
+				" ServiceAccountIssuerDiscovery endpoints. Endpoints will not be"+
+				" enabled. Error: %v", err)
+			if c.ExtraConfig.ServiceAccountIssuerURL != "" {
+				// The user likely expects this feature to be enabled if issuer URL is
+				// set and the feature gate is enabled. In the future, if there is no
+				// longer a feature gate and issuer URL is not set, the user may not
+				// expect this feature to be enabled. We log the former case as an Error
+				// and the latter case as an Info.
+				klog.Error(msg)
+			} else {
+				klog.Info(msg)
+			}
+		} else {
+			routes.NewOpenIDMetadataServer(md.ConfigJSON, md.PublicKeysetJSON).
+				Install(s.Handler.GoRestfulContainer)
+		}
+	}
+
 	m := &Master{
 		GenericAPIServer:          s,
 		ClusterAuthenticationInfo: c.ExtraConfig.ClusterAuthenticationInfo,
@@ -358,6 +398,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			ServiceNodePortRange:        c.ExtraConfig.ServiceNodePortRange,
 			LoopbackClientConfig:        c.GenericConfig.LoopbackClientConfig,
 			ServiceAccountIssuer:        c.ExtraConfig.ServiceAccountIssuer,
+			ExtendExpiration:            c.ExtraConfig.ExtendExpiration,
 			ServiceAccountMaxExpiration: c.ExtraConfig.ServiceAccountMaxExpiration,
 			APIAudiences:                c.GenericConfig.Authentication.APIAudiences,
 		}
@@ -393,7 +434,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		flowcontrolrest.RESTStorageProvider{},
 		// keep apps after extensions so legacy clients resolve the extensions versions of shared resource names.
 		// See https://github.com/kubernetes/kubernetes/issues/42392
-		appsrest.RESTStorageProvider{},
+		appsrest.StorageProvider{},
 		admissionregistrationrest.RESTStorageProvider{},
 		eventsrest.RESTStorageProvider{TTL: c.ExtraConfig.EventTTL},
 	}
@@ -523,7 +564,7 @@ func (n nodeAddressProvider) externalAddresses() ([]string, error) {
 	preferredAddressTypes := []apiv1.NodeAddressType{
 		apiv1.NodeExternalIP,
 	}
-	nodes, err := n.nodeClient.List(metav1.ListOptions{})
+	nodes, err := n.nodeClient.List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

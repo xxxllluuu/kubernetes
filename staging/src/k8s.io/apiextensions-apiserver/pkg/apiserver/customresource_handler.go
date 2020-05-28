@@ -44,7 +44,6 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/controller/finalizer"
 	"k8s.io/apiextensions-apiserver/pkg/controller/openapi/builder"
 	"k8s.io/apiextensions-apiserver/pkg/crdserverscheme"
-	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
 	"k8s.io/apiextensions-apiserver/pkg/registry/customresource"
 	"k8s.io/apiextensions-apiserver/pkg/registry/customresource/tableconvertor"
 
@@ -82,7 +81,7 @@ import (
 	"k8s.io/client-go/scale"
 	"k8s.io/client-go/scale/scheme/autoscalingv1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kube-openapi/pkg/util/proto"
 )
 
@@ -526,29 +525,21 @@ func (r *crdHandler) removeDeadStorage() {
 	r.customStorageLock.Lock()
 	defer r.customStorageLock.Unlock()
 
-	oldInfos := []*crdInfo{}
 	storageMap := r.customStorage.Load().(crdStorageMap)
 	// Copy because we cannot write to storageMap without a race
-	// as it is used without locking elsewhere
-	storageMap2 := storageMap.clone()
-	for uid, s := range storageMap2 {
-		found := false
-		for _, crd := range allCustomResourceDefinitions {
-			if crd.UID == uid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			klog.V(4).Infof("Removing dead CRD storage for %s/%s", s.spec.Group, s.spec.Names.Kind)
-			oldInfos = append(oldInfos, s)
-			delete(storageMap2, uid)
+	storageMap2 := make(crdStorageMap)
+	for _, crd := range allCustomResourceDefinitions {
+		if _, ok := storageMap[crd.UID]; ok {
+			storageMap2[crd.UID] = storageMap[crd.UID]
 		}
 	}
 	r.customStorage.Store(storageMap2)
 
-	for _, s := range oldInfos {
-		go r.tearDown(s)
+	for uid, crdInfo := range storageMap {
+		if _, ok := storageMap2[uid]; !ok {
+			klog.V(4).Infof("Removing dead CRD storage for %s/%s", crdInfo.spec.Group, crdInfo.spec.Names.Kind)
+			go r.tearDown(crdInfo)
+		}
 	}
 }
 
@@ -662,11 +653,11 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
 		openAPIModels = nil
 	}
 
+	safeConverter, unsafeConverter, err := r.converterFactory.NewConverter(crd)
+	if err != nil {
+		return nil, err
+	}
 	for _, v := range crd.Spec.Versions {
-		safeConverter, unsafeConverter, err := r.converterFactory.NewConverter(crd)
-		if err != nil {
-			return nil, err
-		}
 		// In addition to Unstructured objects (Custom Resources), we also may sometimes need to
 		// decode unversioned Options objects, so we delegate to parameterScheme for such types.
 		parameterScheme := runtime.NewScheme()
@@ -709,7 +700,7 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
 			utilruntime.HandleError(err)
 			return nil, fmt.Errorf("the server could not properly serve the CR subresources")
 		}
-		if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceSubresources) && subresources != nil && subresources.Status != nil {
+		if subresources != nil && subresources.Status != nil {
 			equivalentResourceRegistry.RegisterKindFor(resource, "status", kind)
 			statusSpec = &apiextensionsinternal.CustomResourceSubresourceStatus{}
 			if err := apiextensionsv1.Convert_v1_CustomResourceSubresourceStatus_To_apiextensions_CustomResourceSubresourceStatus(subresources.Status, statusSpec, nil); err != nil {
@@ -728,7 +719,7 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
 		}
 
 		var scaleSpec *apiextensionsinternal.CustomResourceSubresourceScale
-		if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourceSubresources) && subresources != nil && subresources.Scale != nil {
+		if subresources != nil && subresources.Scale != nil {
 			equivalentResourceRegistry.RegisterKindFor(resource, "scale", autoscalingv1.SchemeGroupVersion.WithKind("Scale"))
 			scaleSpec = &apiextensionsinternal.CustomResourceSubresourceScale{}
 			if err := apiextensionsv1.Convert_v1_CustomResourceSubresourceScale_To_apiextensions_CustomResourceSubresourceScale(subresources.Scale, scaleSpec, nil); err != nil {

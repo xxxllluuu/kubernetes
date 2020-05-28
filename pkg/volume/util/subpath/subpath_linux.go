@@ -28,7 +28,7 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/mount"
 )
 
@@ -229,7 +229,7 @@ func doCleanSubPaths(mounter mount.Interface, podDir string, volumeName string) 
 
 		// scan /var/lib/kubelet/pods/<uid>/volume-subpaths/<volume>/<container name>/*
 		fullContainerDirPath := filepath.Join(subPathDir, containerDir.Name())
-		err = filepath.Walk(fullContainerDirPath, func(path string, info os.FileInfo, err error) error {
+		err = filepath.Walk(fullContainerDirPath, func(path string, info os.FileInfo, _ error) error {
 			if path == fullContainerDirPath {
 				// Skip top level directory
 				return nil
@@ -240,7 +240,8 @@ func doCleanSubPaths(mounter mount.Interface, podDir string, volumeName string) 
 				return err
 			}
 
-			if info.IsDir() {
+			// We need to check that info is not nil. This may happen when the incoming err is not nil due to stale mounts or permission errors.
+			if info != nil && info.IsDir() {
 				// skip subdirs of the volume: it only matters the first level to unmount, otherwise it would try to unmount subdir of the volume
 				return filepath.SkipDir
 			}

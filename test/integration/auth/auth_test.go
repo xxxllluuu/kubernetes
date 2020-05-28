@@ -37,6 +37,7 @@ import (
 
 	authenticationv1beta1 "k8s.io/api/authentication/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/group"
 	"k8s.io/apiserver/pkg/authentication/request/bearertoken"
@@ -69,7 +70,7 @@ func getTestTokenAuth() authenticator.Request {
 	return group.NewGroupAdder(bearertoken.New(tokenAuthenticator), []string{user.AllAuthenticated})
 }
 
-func getTestWebhookTokenAuth(serverURL string) (authenticator.Request, error) {
+func getTestWebhookTokenAuth(serverURL string, customDial utilnet.DialFunc) (authenticator.Request, error) {
 	kubecfgFile, err := ioutil.TempFile("", "webhook-kubecfg")
 	if err != nil {
 		return nil, err
@@ -85,11 +86,17 @@ func getTestWebhookTokenAuth(serverURL string) (authenticator.Request, error) {
 	if err := json.NewEncoder(kubecfgFile).Encode(config); err != nil {
 		return nil, err
 	}
-	webhookTokenAuth, err := webhook.New(kubecfgFile.Name(), "v1beta1", nil)
+	webhookTokenAuth, err := webhook.New(kubecfgFile.Name(), "v1beta1", nil, customDial)
 	if err != nil {
 		return nil, err
 	}
 	return bearertoken.New(cache.New(webhookTokenAuth, false, 2*time.Minute, 2*time.Minute)), nil
+}
+
+func getTestWebhookTokenAuthCustomDialer(serverURL string) (authenticator.Request, error) {
+	customDial := http.DefaultTransport.(*http.Transport).DialContext
+
+	return getTestWebhookTokenAuth(serverURL, customDial)
 }
 
 func path(resource, namespace, name string) string {
@@ -460,11 +467,11 @@ func TestAuthModeAlwaysAllow(t *testing.T) {
 		}
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			b, _ := ioutil.ReadAll(resp.Body)
 			if _, ok := r.statusCodes[resp.StatusCode]; !ok {
 				t.Logf("case %v", r)
@@ -541,11 +548,11 @@ func TestAuthModeAlwaysDeny(t *testing.T) {
 		}
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusForbidden {
 				t.Logf("case %v", r)
 				t.Errorf("Expected status Forbidden but got status %v", resp.Status)
@@ -610,11 +617,11 @@ func TestAliceNotForbiddenOrUnauthorized(t *testing.T) {
 
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			b, _ := ioutil.ReadAll(resp.Body)
 			if _, ok := r.statusCodes[resp.StatusCode]; !ok {
 				t.Logf("case %v", r)
@@ -662,11 +669,11 @@ func TestBobIsForbidden(t *testing.T) {
 
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all of bob's actions to return Forbidden
 			if resp.StatusCode != http.StatusForbidden {
 				t.Logf("case %v", r)
@@ -705,11 +712,11 @@ func TestUnknownUserIsUnauthorized(t *testing.T) {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all of unauthenticated user's request to be "Unauthorized"
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Logf("case %v", r)
@@ -769,11 +776,11 @@ func TestImpersonateIsForbidden(t *testing.T) {
 
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all of bob's actions to return Forbidden
 			if resp.StatusCode != http.StatusForbidden {
 				t.Logf("case %v", r)
@@ -794,11 +801,11 @@ func TestImpersonateIsForbidden(t *testing.T) {
 		req.Header.Set("Impersonate-User", "alice")
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all the requests to be allowed, don't care what they actually do
 			if resp.StatusCode == http.StatusForbidden {
 				t.Logf("case %v", r)
@@ -820,11 +827,11 @@ func TestImpersonateIsForbidden(t *testing.T) {
 
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all of bob's actions to return Forbidden
 			if resp.StatusCode != http.StatusForbidden {
 				t.Logf("case %v", r)
@@ -845,11 +852,11 @@ func TestImpersonateIsForbidden(t *testing.T) {
 		req.Header.Set("Impersonate-User", serviceaccount.MakeUsername("default", "default"))
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all the requests to be allowed, don't care what they actually do
 			if resp.StatusCode == http.StatusForbidden {
 				t.Logf("case %v", r)
@@ -926,11 +933,11 @@ func TestAuthorizationAttributeDetermination(t *testing.T) {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 
 			found := false
 			for i := currentAuthorizationAttributesIndex; i < len(trackingAuthorizer.requestAttributes); i++ {
@@ -1024,11 +1031,11 @@ func TestNamespaceAuthorization(t *testing.T) {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			b, _ := ioutil.ReadAll(resp.Body)
 			if _, ok := r.statusCodes[resp.StatusCode]; !ok {
 				t.Logf("case %v", r)
@@ -1109,11 +1116,11 @@ func TestKindAuthorization(t *testing.T) {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		{
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			b, _ := ioutil.ReadAll(resp.Body)
 			if _, ok := r.statusCodes[resp.StatusCode]; !ok {
 				t.Logf("case %v", r)
@@ -1173,11 +1180,11 @@ func TestReadOnlyAuthorization(t *testing.T) {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			if _, ok := r.statusCodes[resp.StatusCode]; !ok {
 				t.Logf("case %v", r)
 				t.Errorf("Expected status one of %v, but got %v", r.statusCodes, resp.StatusCode)
@@ -1192,9 +1199,27 @@ func TestReadOnlyAuthorization(t *testing.T) {
 // authenticator to call out to a remote web server for authentication
 // decisions.
 func TestWebhookTokenAuthenticator(t *testing.T) {
+	testWebhookTokenAuthenticator(false, t)
+}
+
+// TestWebhookTokenAuthenticatorCustomDial is the same as TestWebhookTokenAuthenticator, but uses a
+// custom dialer
+func TestWebhookTokenAuthenticatorCustomDial(t *testing.T) {
+	testWebhookTokenAuthenticator(true, t)
+}
+
+func testWebhookTokenAuthenticator(customDialer bool, t *testing.T) {
 	authServer := newTestWebhookTokenAuthServer()
 	defer authServer.Close()
-	authenticator, err := getTestWebhookTokenAuth(authServer.URL)
+	var authenticator authenticator.Request
+	var err error
+
+	if customDialer == false {
+		authenticator, err = getTestWebhookTokenAuth(authServer.URL, nil)
+	} else {
+		authenticator, err = getTestWebhookTokenAuthCustomDialer(authServer.URL)
+	}
+
 	if err != nil {
 		t.Fatalf("error starting webhook token authenticator server: %v", err)
 	}
@@ -1223,11 +1248,11 @@ func TestWebhookTokenAuthenticator(t *testing.T) {
 
 		func() {
 			resp, err := transport.RoundTrip(req)
-			defer resp.Body.Close()
 			if err != nil {
 				t.Logf("case %v", r)
 				t.Fatalf("unexpected error: %v", err)
 			}
+			defer resp.Body.Close()
 			// Expect all of Bob's actions to return Forbidden
 			if resp.StatusCode != http.StatusForbidden {
 				t.Logf("case %v", r)

@@ -41,7 +41,7 @@ import (
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
-	"k8s.io/kubernetes/pkg/kubelet/server/remotecommand"
+	"k8s.io/kubernetes/pkg/kubelet/cri/streaming/remotecommand"
 )
 
 type fakeExecutor struct {
@@ -184,33 +184,6 @@ func TestStream(t *testing.T) {
 			MessageCount:    100,
 			ClientProtocols: []string{remotecommandconsts.StreamProtocolV2Name},
 			ServerProtocols: []string{remotecommandconsts.StreamProtocolV2Name},
-		},
-		{
-			// 1.0 kubectl, 1.0 kubelet
-			TestName:        "unversioned client, unversioned server",
-			Stdout:          "b",
-			Stderr:          "c",
-			MessageCount:    1,
-			ClientProtocols: []string{},
-			ServerProtocols: []string{},
-		},
-		{
-			// 1.0 kubectl, 1.1+ kubelet
-			TestName:        "unversioned client, versioned server",
-			Stdout:          "b",
-			Stderr:          "c",
-			MessageCount:    1,
-			ClientProtocols: []string{},
-			ServerProtocols: []string{remotecommandconsts.StreamProtocolV2Name, remotecommandconsts.StreamProtocolV1Name},
-		},
-		{
-			// 1.1+ kubectl, 1.0 kubelet
-			TestName:        "versioned client, unversioned server",
-			Stdout:          "b",
-			Stderr:          "c",
-			MessageCount:    1,
-			ClientProtocols: []string{remotecommandconsts.StreamProtocolV2Name, remotecommandconsts.StreamProtocolV1Name},
-			ServerProtocols: []string{},
 		},
 	}
 

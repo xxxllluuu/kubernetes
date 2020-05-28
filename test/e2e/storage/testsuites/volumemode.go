@@ -17,10 +17,10 @@ limitations under the License.
 package testsuites
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -30,14 +30,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	volevents "k8s.io/kubernetes/pkg/controller/volume/events"
 	"k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2eevents "k8s.io/kubernetes/test/e2e/framework/events"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2epv "k8s.io/kubernetes/test/e2e/framework/pv"
-	"k8s.io/kubernetes/test/e2e/framework/volume"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
+	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/utils"
 )
@@ -64,7 +65,7 @@ func InitVolumeModeTestSuite() TestSuite {
 				testpatterns.BlockVolModePreprovisionedPV,
 				testpatterns.BlockVolModeDynamicPV,
 			},
-			SupportedSizeRange: volume.SizeRange{
+			SupportedSizeRange: e2evolume.SizeRange{
 				Min: "1Mi",
 			},
 		},
@@ -145,7 +146,7 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 			if pDriver, ok := driver.(PreprovisionedPVTestDriver); ok {
 				pvSource, volumeNodeAffinity = pDriver.GetPersistentVolumeSource(false, fsType, l.Volume)
 				if pvSource == nil {
-					framework.Skipf("Driver %q does not define PersistentVolumeSource - skipping", dInfo.Name)
+					e2eskipper.Skipf("Driver %q does not define PersistentVolumeSource - skipping", dInfo.Name)
 				}
 
 				storageClass, pvConfig, pvcConfig := generateConfigsForPreprovisionedPVTest(scName, volBindMode, pattern.VolMode, *pvSource, volumeNodeAffinity)
@@ -157,7 +158,7 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 			if dDriver, ok := driver.(DynamicPVTestDriver); ok {
 				l.Sc = dDriver.GetDynamicProvisionStorageClass(l.config, fsType)
 				if l.Sc == nil {
-					framework.Skipf("Driver %q does not define Dynamic Provision StorageClass - skipping", dInfo.Name)
+					e2eskipper.Skipf("Driver %q does not define Dynamic Provision StorageClass - skipping", dInfo.Name)
 				}
 				l.Sc.VolumeBindingMode = &volBindMode
 				testVolumeSizeRange := t.GetTestSuiteInfo().SupportedSizeRange
@@ -197,25 +198,31 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 				var err error
 
 				ginkgo.By("Creating sc")
-				l.Sc, err = l.cs.StorageV1().StorageClasses().Create(l.Sc)
+				l.Sc, err = l.cs.StorageV1().StorageClasses().Create(context.TODO(), l.Sc, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create sc")
 
 				ginkgo.By("Creating pv and pvc")
-				l.Pv, err = l.cs.CoreV1().PersistentVolumes().Create(l.Pv)
+				l.Pv, err = l.cs.CoreV1().PersistentVolumes().Create(context.TODO(), l.Pv, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create pv")
 
 				// Prebind pv
 				l.Pvc.Spec.VolumeName = l.Pv.Name
-				l.Pvc, err = l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Create(l.Pvc)
+				l.Pvc, err = l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Create(context.TODO(), l.Pvc, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create pvc")
 
 				framework.ExpectNoError(e2epv.WaitOnPVandPVC(l.cs, l.ns.Name, l.Pv, l.Pvc), "Failed to bind pv and pvc")
 
 				ginkgo.By("Creating pod")
-				pod := e2epod.MakeSecPod(l.ns.Name, []*v1.PersistentVolumeClaim{l.Pvc}, nil, false, "", false, false, e2epv.SELinuxLabel, nil)
-				// Setting node
-				pod.Spec.NodeName = l.config.ClientNodeName
-				pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(pod)
+				podConfig := e2epod.Config{
+					NS:            l.ns.Name,
+					PVCs:          []*v1.PersistentVolumeClaim{l.Pvc},
+					SeLinuxLabel:  e2epv.SELinuxLabel,
+					NodeSelection: l.config.ClientNodeSelection,
+				}
+				pod, err := e2epod.MakeSecPod(&podConfig)
+				framework.ExpectNoError(err, "Failed to create pod")
+
+				pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create pod")
 				defer func() {
 					framework.ExpectNoError(e2epod.DeletePodWithWait(l.cs, pod), "Failed to delete pod")
@@ -229,14 +236,14 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 				}.AsSelector().String()
 				msg := "Unable to attach or mount volumes"
 
-				err = waitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.PodStartTimeout)
+				err = e2eevents.WaitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.PodStartTimeout)
 				// Events are unreliable, don't depend on the event. It's used only to speed up the test.
 				if err != nil {
 					framework.Logf("Warning: did not get event about FailedMountVolume")
 				}
 
 				// Check the pod is still not running
-				p, err := l.cs.CoreV1().Pods(l.ns.Name).Get(pod.Name, metav1.GetOptions{})
+				p, err := l.cs.CoreV1().Pods(l.ns.Name).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 				framework.ExpectNoError(err, "could not re-read the pod after event (or timeout)")
 				framework.ExpectEqual(p.Status.Phase, v1.PodPending, "Pod phase isn't pending")
 			})
@@ -251,11 +258,11 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 				var err error
 
 				ginkgo.By("Creating sc")
-				l.Sc, err = l.cs.StorageV1().StorageClasses().Create(l.Sc)
+				l.Sc, err = l.cs.StorageV1().StorageClasses().Create(context.TODO(), l.Sc, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create sc")
 
 				ginkgo.By("Creating pv and pvc")
-				l.Pvc, err = l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Create(l.Pvc)
+				l.Pvc, err = l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Create(context.TODO(), l.Pvc, metav1.CreateOptions{})
 				framework.ExpectNoError(err, "Failed to create pvc")
 
 				eventSelector := fields.Set{
@@ -266,14 +273,14 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 				}.AsSelector().String()
 				msg := "does not support block volume provisioning"
 
-				err = waitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.ClaimProvisionTimeout)
+				err = e2eevents.WaitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.ClaimProvisionTimeout)
 				// Events are unreliable, don't depend on the event. It's used only to speed up the test.
 				if err != nil {
 					framework.Logf("Warning: did not get event about provisioing failed")
 				}
 
 				// Check the pvc is still pending
-				pvc, err := l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Get(l.Pvc.Name, metav1.GetOptions{})
+				pvc, err := l.cs.CoreV1().PersistentVolumeClaims(l.ns.Name).Get(context.TODO(), l.Pvc.Name, metav1.GetOptions{})
 				framework.ExpectNoError(err, "Failed to re-read the pvc after event (or timeout)")
 				framework.ExpectEqual(pvc.Status.Phase, v1.ClaimPending, "PVC phase isn't pending")
 			})
@@ -291,12 +298,19 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 
 		ginkgo.By("Creating pod")
 		var err error
-		pod := e2epod.MakeSecPod(l.ns.Name, []*v1.PersistentVolumeClaim{l.Pvc}, nil, false, "", false, false, e2epv.SELinuxLabel, nil)
+		podConfig := e2epod.Config{
+			NS:           l.ns.Name,
+			PVCs:         []*v1.PersistentVolumeClaim{l.Pvc},
+			SeLinuxLabel: e2epv.SELinuxLabel,
+		}
+		pod, err := e2epod.MakeSecPod(&podConfig)
+		framework.ExpectNoError(err)
+
 		// Change volumeMounts to volumeDevices and the other way around
 		pod = swapVolumeMode(pod)
 
 		// Run the pod
-		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(pod)
+		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err, "Failed to create pod")
 		defer func() {
 			framework.ExpectNoError(e2epod.DeletePodWithWait(l.cs, pod), "Failed to delete pod")
@@ -317,14 +331,14 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 		} else {
 			msg = "has volumeMode Filesystem, but is specified in volumeDevices"
 		}
-		err = waitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.PodStartTimeout)
+		err = e2eevents.WaitTimeoutForEvent(l.cs, l.ns.Name, eventSelector, msg, framework.PodStartTimeout)
 		// Events are unreliable, don't depend on them. They're used only to speed up the test.
 		if err != nil {
 			framework.Logf("Warning: did not get event about mismatched volume use")
 		}
 
 		// Check the pod is still not running
-		p, err := l.cs.CoreV1().Pods(l.ns.Name).Get(pod.Name, metav1.GetOptions{})
+		p, err := l.cs.CoreV1().Pods(l.ns.Name).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 		framework.ExpectNoError(err, "could not re-read the pod after event (or timeout)")
 		framework.ExpectEqual(p.Status.Phase, v1.PodPending, "Pod phase isn't pending")
 	})
@@ -340,14 +354,21 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 
 		ginkgo.By("Creating pod")
 		var err error
-		pod := e2epod.MakeSecPod(l.ns.Name, []*v1.PersistentVolumeClaim{l.Pvc}, nil, false, "", false, false, e2epv.SELinuxLabel, nil)
+		podConfig := e2epod.Config{
+			NS:           l.ns.Name,
+			PVCs:         []*v1.PersistentVolumeClaim{l.Pvc},
+			SeLinuxLabel: e2epv.SELinuxLabel,
+		}
+		pod, err := e2epod.MakeSecPod(&podConfig)
+		framework.ExpectNoError(err)
+
 		for i := range pod.Spec.Containers {
 			pod.Spec.Containers[i].VolumeDevices = nil
 			pod.Spec.Containers[i].VolumeMounts = nil
 		}
 
 		// Run the pod
-		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(pod)
+		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Create(context.TODO(), pod, metav1.CreateOptions{})
 		framework.ExpectNoError(err)
 		defer func() {
 			framework.ExpectNoError(e2epod.DeletePodWithWait(l.cs, pod))
@@ -357,10 +378,10 @@ func (t *volumeModeTestSuite) DefineTests(driver TestDriver, pattern testpattern
 		framework.ExpectNoError(err)
 
 		// Reload the pod to get its node
-		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Get(pod.Name, metav1.GetOptions{})
+		pod, err = l.cs.CoreV1().Pods(l.ns.Name).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 		framework.ExpectNotEqual(pod.Spec.NodeName, "", "pod should be scheduled to a node")
-		node, err := l.cs.CoreV1().Nodes().Get(pod.Spec.NodeName, metav1.GetOptions{})
+		node, err := l.cs.CoreV1().Nodes().Get(context.TODO(), pod.Spec.NodeName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Listing mounted volumes in the pod")
@@ -478,33 +499,4 @@ func listPodDirectory(h utils.HostExec, path string, node *v1.Node) ([]string, e
 		return nil, fmt.Errorf("error checking directory %s on node %s: %s", path, node.Name, err)
 	}
 	return strings.Split(out, "\n"), nil
-}
-
-// NOTE(avalluri): The below code is intentionally copied from e2e/common package.
-// Testsuites depending on common package is not desirable as that pulls quite
-// many tests which are not interested by storage suites.
-//
-// waitTimeoutForEvent waits the given timeout duration for an event to occur.
-func waitTimeoutForEvent(c clientset.Interface, namespace, eventSelector, msg string, timeout time.Duration) error {
-	interval := 2 * time.Second
-	return wait.PollImmediate(interval, timeout, eventOccurred(c, namespace, eventSelector, msg))
-}
-
-// NOTE(avalluri): The below code is intentionally copied from e2e/common package.
-// Testsuites depending on common package is not desirable as that pulls quite
-// many tests which are not interested by storage suites.
-func eventOccurred(c clientset.Interface, namespace, eventSelector, msg string) wait.ConditionFunc {
-	options := metav1.ListOptions{FieldSelector: eventSelector}
-	return func() (bool, error) {
-		events, err := c.CoreV1().Events(namespace).List(options)
-		if err != nil {
-			return false, fmt.Errorf("got error while getting events: %v", err)
-		}
-		for _, event := range events.Items {
-			if strings.Contains(event.Message, msg) {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
 }

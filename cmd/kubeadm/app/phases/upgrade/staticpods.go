@@ -20,23 +20,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	certsphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/certs"
 	"k8s.io/kubernetes/cmd/kubeadm/app/phases/certs/renewal"
 	"k8s.io/kubernetes/cmd/kubeadm/app/phases/controlplane"
 	etcdphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/etcd"
-	"k8s.io/kubernetes/cmd/kubeadm/app/util"
+	kubeadmutil "k8s.io/kubernetes/cmd/kubeadm/app/util"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/apiclient"
 	dryrunutil "k8s.io/kubernetes/cmd/kubeadm/app/util/dryrun"
 	etcdutil "k8s.io/kubernetes/cmd/kubeadm/app/util/etcd"
+	"k8s.io/kubernetes/cmd/kubeadm/app/util/image"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/staticpod"
 )
 
@@ -276,38 +278,42 @@ func performEtcdStaticPodUpgrade(certsRenewMgr *renewal.Manager, client clientse
 	// Backing up etcd data store
 	backupEtcdDir := pathMgr.BackupEtcdDir()
 	runningEtcdDir := cfg.Etcd.Local.DataDir
-	if err := util.CopyDir(runningEtcdDir, backupEtcdDir); err != nil {
+	if err := kubeadmutil.CopyDir(runningEtcdDir, backupEtcdDir); err != nil {
 		return true, errors.Wrap(err, "failed to back up etcd data")
 	}
 
-	// Need to check currently used version and version from constants, if differs then upgrade
-	desiredEtcdVersion, err := constants.EtcdSupportedVersion(cfg.KubernetesVersion)
-	if err != nil {
-		return true, errors.Wrap(err, "failed to retrieve an etcd version for the target Kubernetes version")
+	// Get the desired etcd version. That's either the one specified by the user in cfg.Etcd.Local.ImageTag
+	// or the kubeadm preferred one for the desired Kubernetes version
+	var desiredEtcdVersion *version.Version
+	if cfg.Etcd.Local.ImageTag != "" {
+		desiredEtcdVersion, err = version.ParseSemantic(cfg.Etcd.Local.ImageTag)
+		if err != nil {
+			return true, errors.Wrapf(err, "failed to parse tag %q as a semantic version", cfg.Etcd.Local.ImageTag)
+		}
+	} else {
+		// Need to check currently used version and version from constants, if differs then upgrade
+		var warning error
+		desiredEtcdVersion, warning, err = constants.EtcdSupportedVersion(constants.SupportedEtcdVersion, cfg.KubernetesVersion)
+		if err != nil {
+			return true, errors.Wrap(err, "failed to retrieve an etcd version for the target Kubernetes version")
+		}
+		if warning != nil {
+			klog.Warningf("[upgrade/etcd] %v", warning)
+		}
 	}
 
-	// gets the etcd version of the local/stacked etcd member running on the current machine
-	currentEtcdVersions, err := oldEtcdClient.GetClusterVersions()
+	// Get the etcd version of the local/stacked etcd member running on the current machine
+	currentEtcdVersionStr, err := GetEtcdImageTagFromStaticPod(pathMgr.RealManifestDir())
 	if err != nil {
 		return true, errors.Wrap(err, "failed to retrieve the current etcd version")
 	}
-	currentEtcdVersionStr, ok := currentEtcdVersions[etcdutil.GetClientURL(&cfg.LocalAPIEndpoint)]
-	if !ok {
-		return true, errors.Wrap(err, "failed to retrieve the current etcd version")
-	}
 
-	currentEtcdVersion, err := version.ParseSemantic(currentEtcdVersionStr)
+	cmpResult, err := desiredEtcdVersion.Compare(currentEtcdVersionStr)
 	if err != nil {
-		return true, errors.Wrapf(err, "failed to parse the current etcd version(%s)", currentEtcdVersionStr)
+		return true, errors.Wrapf(err, "failed comparing the current etcd version %q to the desired one %q", currentEtcdVersionStr, desiredEtcdVersion)
 	}
-
-	// Comparing current etcd version with desired to catch the same version or downgrade condition and fail on them.
-	if desiredEtcdVersion.LessThan(currentEtcdVersion) {
-		return false, errors.Errorf("the desired etcd version for this Kubernetes version %q is %q, but the current etcd version is %q. Won't downgrade etcd, instead just continue", cfg.KubernetesVersion, desiredEtcdVersion.String(), currentEtcdVersion.String())
-	}
-	// For the case when desired etcd version is the same as current etcd version
-	if strings.Compare(desiredEtcdVersion.String(), currentEtcdVersion.String()) == 0 {
-		return false, nil
+	if cmpResult < 1 {
+		return false, errors.Errorf("the desired etcd version %q is not newer than the currently installed %q. Skipping etcd upgrade", desiredEtcdVersion, currentEtcdVersionStr)
 	}
 
 	beforeEtcdPodHash, err := waiter.WaitForStaticPodSingleHash(cfg.NodeRegistration.Name, constants.Etcd)
@@ -522,7 +528,7 @@ func rollbackEtcdData(cfg *kubeadmapi.InitConfiguration, pathMgr StaticPodPathMa
 	backupEtcdDir := pathMgr.BackupEtcdDir()
 	runningEtcdDir := cfg.Etcd.Local.DataDir
 
-	if err := util.CopyDir(backupEtcdDir, runningEtcdDir); err != nil {
+	if err := kubeadmutil.CopyDir(backupEtcdDir, runningEtcdDir); err != nil {
 		// Let the user know there we're problems, but we tried to reçover
 		return errors.Wrapf(err, "couldn't recover etcd database with error, the location of etcd backup: %s ", backupEtcdDir)
 	}
@@ -591,8 +597,8 @@ func renewCertsByComponent(cfg *kubeadmapi.InitConfiguration, component string, 
 
 // GetPathManagerForUpgrade returns a path manager properly configured for the given InitConfiguration.
 func GetPathManagerForUpgrade(kubernetesDir, kustomizeDir string, internalcfg *kubeadmapi.InitConfiguration, etcdUpgrade bool) (StaticPodPathManager, error) {
-	isHAEtcd := etcdutil.CheckConfigurationIsHA(&internalcfg.Etcd)
-	return NewKubeStaticPodPathManagerUsingTempDirs(kubernetesDir, kustomizeDir, true, etcdUpgrade && !isHAEtcd)
+	isExternalEtcd := internalcfg.Etcd.External != nil
+	return NewKubeStaticPodPathManagerUsingTempDirs(kubernetesDir, kustomizeDir, true, etcdUpgrade && !isExternalEtcd)
 }
 
 // PerformStaticPodUpgrade performs the upgrade of the control plane components for a static pod hosted cluster
@@ -627,4 +633,15 @@ func DryRunStaticPodUpgrade(kustomizeDir string, internalcfg *kubeadmapi.InitCon
 	}
 
 	return dryrunutil.PrintDryRunFiles(files, os.Stdout)
+}
+
+// GetEtcdImageTagFromStaticPod returns the image tag of the local etcd static pod
+func GetEtcdImageTagFromStaticPod(manifestDir string) (string, error) {
+	realPath := constants.GetStaticPodFilepath(constants.Etcd, manifestDir)
+	pod, err := staticpod.ReadStaticPodFromDisk(realPath)
+	if err != nil {
+		return "", err
+	}
+
+	return image.TagFromImage(pod.Spec.Containers[0].Image), nil
 }

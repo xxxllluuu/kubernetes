@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	utilwait "k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	utilexec "k8s.io/utils/exec"
 	utiltrace "k8s.io/utils/trace"
 )
@@ -55,8 +55,10 @@ type Interface interface {
 	EnsureRule(position RulePosition, table Table, chain Chain, args ...string) (bool, error)
 	// DeleteRule checks if the specified rule is present and, if so, deletes it.
 	DeleteRule(table Table, chain Chain, args ...string) error
-	// IsIpv6 returns true if this is managing ipv6 tables
-	IsIpv6() bool
+	// IsIPv6 returns true if this is managing ipv6 tables.
+	IsIPv6() bool
+	// Protocol returns the IP family this instance is managing,
+	Protocol() Protocol
 	// SaveInto calls `iptables-save` for table and stores result in a given buffer.
 	SaveInto(table Table, buffer *bytes.Buffer) error
 	// Restore runs `iptables-restore` passing data through []byte.
@@ -87,13 +89,13 @@ type Interface interface {
 }
 
 // Protocol defines the ip protocol either ipv4 or ipv6
-type Protocol byte
+type Protocol string
 
 const (
-	// ProtocolIpv4 represents ipv4 protocol in iptables
-	ProtocolIpv4 Protocol = iota + 1
-	// ProtocolIpv6 represents ipv6 protocol in iptables
-	ProtocolIpv6
+	// ProtocolIPv4 represents ipv4 protocol in iptables
+	ProtocolIPv4 Protocol = "IPv4"
+	// ProtocolIPv6 represents ipv6 protocol in iptables
+	ProtocolIPv6 Protocol = "IPv6"
 )
 
 // Table represents different iptable like filter,nat, mangle and raw
@@ -163,6 +165,9 @@ var RandomFullyMinVersion = utilversion.MustParseGeneric("1.6.2")
 // WaitMinVersion a minimum iptables versions supporting the -w and -w<seconds> flags
 var WaitMinVersion = utilversion.MustParseGeneric("1.4.20")
 
+// WaitIntervalMinVersion a minimum iptables versions supporting the wait interval useconds
+var WaitIntervalMinVersion = utilversion.MustParseGeneric("1.6.1")
+
 // WaitSecondsMinVersion a minimum iptables versions supporting the wait seconds
 var WaitSecondsMinVersion = utilversion.MustParseGeneric("1.4.22")
 
@@ -174,6 +179,12 @@ const WaitString = "-w"
 
 // WaitSecondsValue a constant for specifying the default wait seconds
 const WaitSecondsValue = "5"
+
+// WaitIntervalString a constant for specifying the wait interval flag
+const WaitIntervalString = "-W"
+
+// WaitIntervalUsecondsValue a constant for specifying the default wait interval useconds
+const WaitIntervalUsecondsValue = "100000"
 
 // LockfilePath16x is the iptables lock file acquired by any process that's making any change in the iptable rule
 const LockfilePath16x = "/run/xtables.lock"
@@ -310,8 +321,12 @@ func (runner *runner) DeleteRule(table Table, chain Chain, args ...string) error
 	return nil
 }
 
-func (runner *runner) IsIpv6() bool {
-	return runner.protocol == ProtocolIpv6
+func (runner *runner) IsIPv6() bool {
+	return runner.protocol == ProtocolIPv6
+}
+
+func (runner *runner) Protocol() Protocol {
+	return runner.protocol
 }
 
 // SaveInto is part of Interface.
@@ -401,14 +416,14 @@ func (runner *runner) restoreInternal(args []string, data []byte, flush FlushFla
 }
 
 func iptablesSaveCommand(protocol Protocol) string {
-	if protocol == ProtocolIpv6 {
+	if protocol == ProtocolIPv6 {
 		return cmdIP6TablesSave
 	}
 	return cmdIPTablesSave
 }
 
 func iptablesRestoreCommand(protocol Protocol) string {
-	if protocol == ProtocolIpv6 {
+	if protocol == ProtocolIPv6 {
 		return cmdIP6TablesRestore
 	}
 	return cmdIPTablesRestore
@@ -416,14 +431,14 @@ func iptablesRestoreCommand(protocol Protocol) string {
 }
 
 func iptablesCommand(protocol Protocol) string {
-	if protocol == ProtocolIpv6 {
+	if protocol == ProtocolIPv6 {
 		return cmdIP6Tables
 	}
 	return cmdIPTables
 }
 
 func (runner *runner) run(op operation, args []string) ([]byte, error) {
-	return runner.runContext(nil, op, args)
+	return runner.runContext(context.TODO(), op, args)
 }
 
 func (runner *runner) runContext(ctx context.Context, op operation, args []string) ([]byte, error) {
@@ -638,6 +653,8 @@ func getIPTablesVersion(exec utilexec.Interface, protocol Protocol) (*utilversio
 // Checks if iptables version has a "wait" flag
 func getIPTablesWaitFlag(version *utilversion.Version) []string {
 	switch {
+	case version.AtLeast(WaitIntervalMinVersion):
+		return []string{WaitString, WaitSecondsValue, WaitIntervalString, WaitIntervalUsecondsValue}
 	case version.AtLeast(WaitSecondsMinVersion):
 		return []string{WaitString, WaitSecondsValue}
 	case version.AtLeast(WaitMinVersion):
@@ -650,7 +667,7 @@ func getIPTablesWaitFlag(version *utilversion.Version) []string {
 // Checks if iptables-restore has a "wait" flag
 func getIPTablesRestoreWaitFlag(version *utilversion.Version, exec utilexec.Interface, protocol Protocol) []string {
 	if version.AtLeast(WaitRestoreMinVersion) {
-		return []string{WaitString, WaitSecondsValue}
+		return []string{WaitString, WaitSecondsValue, WaitIntervalString, WaitIntervalUsecondsValue}
 	}
 
 	// Older versions may have backported features; if iptables-restore supports

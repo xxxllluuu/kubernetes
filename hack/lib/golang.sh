@@ -674,6 +674,9 @@ kube::golang::build_some_binaries() {
 }
 
 kube::golang::build_binaries_for_platform() {
+  # This is for sanity.  Without it, user umasks can leak through.
+  umask 0022
+
   local platform=$1
 
   local -a statics=()
@@ -700,6 +703,7 @@ kube::golang::build_binaries_for_platform() {
       -gcflags "${gogcflags:-}"
       -asmflags "${goasmflags:-}"
       -ldflags "${goldflags:-}"
+      -tags "${gotags:-}"
     )
     CGO_ENABLED=0 kube::golang::build_some_binaries "${statics[@]}"
   fi
@@ -710,6 +714,7 @@ kube::golang::build_binaries_for_platform() {
       -gcflags "${gogcflags:-}"
       -asmflags "${goasmflags:-}"
       -ldflags "${goldflags:-}"
+      -tags "${gotags:-}"
     )
     kube::golang::build_some_binaries "${nonstatics[@]}"
   fi
@@ -725,6 +730,7 @@ kube::golang::build_binaries_for_platform() {
       -gcflags "${gogcflags:-}" \
       -asmflags "${goasmflags:-}" \
       -ldflags "${goldflags:-}" \
+      -tags "${gotags:-}" \
       -o "${outfile}" \
       "${testpkg}"
   done
@@ -776,14 +782,18 @@ kube::golang::build_binaries() {
     local host_platform
     host_platform=$(kube::golang::host_platform)
 
-    local goflags goldflags goasmflags gogcflags
+    local goflags goldflags goasmflags gogcflags gotags
     # If GOLDFLAGS is unset, then set it to the a default of "-s -w".
     # Disable SC2153 for this, as it will throw a warning that the local
     # variable goldflags will exist, and it suggest changing it to this.
     # shellcheck disable=SC2153
-    goldflags="${GOLDFLAGS=-s -w} $(kube::version::ldflags)"
+    goldflags="${GOLDFLAGS=-s -w -buildid=} $(kube::version::ldflags)"
     goasmflags="-trimpath=${KUBE_ROOT}"
     gogcflags="${GOGCFLAGS:-} -trimpath=${KUBE_ROOT}"
+
+    # extract tags if any specified in GOFLAGS
+    # shellcheck disable=SC2001
+    gotags="selinux,$(echo "${GOFLAGS:-}" | sed -e 's|.*-tags=\([^-]*\).*|\1|')"
 
     local -a targets=()
     local arg

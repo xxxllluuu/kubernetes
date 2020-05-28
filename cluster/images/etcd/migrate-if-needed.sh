@@ -19,7 +19,7 @@
 # variables:
 # TARGET_STORAGE - API of etcd to be used (supported: 'etcd3')
 # TARGET_VERSION - etcd release to be used (supported: '3.0.17', '3.1.12',
-# '3.2.24', "3.3.17", "3.4.3")
+# '3.2.24', "3.3.17", "3.4.7")
 # DATA_DIRECTORY - directory with etcd data
 #
 # The current etcd version and storage format is detected based on the
@@ -30,7 +30,7 @@
 # - 3.0.17/etcd3 -> 3.1.12/etcd3
 # - 3.1.12/etcd3 -> 3.2.24/etcd3
 # - 3.2.24/etcd3 -> 3.3.17/etcd3
-# - 3.3.17/etcd3 -> 3.4.3/etcd3
+# - 3.3.17/etcd3 -> 3.4.7/etcd3
 #
 # NOTE: The releases supported in this script has to match release binaries
 # present in the etcd image (to make this script work correctly).
@@ -43,9 +43,10 @@ set -o nounset
 
 # NOTE: BUNDLED_VERSION has to match release binaries present in the
 # etcd image (to make this script work correctly).
-BUNDLED_VERSIONS="3.0.17, 3.1.12, 3.2.24, 3.3.17, 3.4.3"
+BUNDLED_VERSIONS="3.0.17, 3.1.12, 3.2.24, 3.3.17, 3.4.7"
 
-ETCD_NAME="${ETCD_NAME:-etcd-$(hostname)}"
+# shellcheck disable=SC2039
+ETCD_NAME="${ETCD_NAME:-etcd-$HOSTNAME}"
 if [ -z "${DATA_DIRECTORY:-}" ]; then
   echo "DATA_DIRECTORY variable unset - unexpected failure"
   exit 1
@@ -87,8 +88,8 @@ ETCD_CREDS="${ETCD_CREDS:-}"
 
 # Correctly support upgrade and rollback to non-default version.
 if [ "${DO_NOT_MOVE_BINARIES:-}" != "true" ]; then
-  cp "/usr/local/bin/etcd-${TARGET_VERSION}" "/usr/local/bin/etcd"
-  cp "/usr/local/bin/etcdctl-${TARGET_VERSION}" "/usr/local/bin/etcdctl"
+  /bin/cp "/usr/local/bin/etcd-${TARGET_VERSION}" "/usr/local/bin/etcd"
+  /bin/cp "/usr/local/bin/etcdctl-${TARGET_VERSION}" "/usr/local/bin/etcdctl"
 fi
 
 /usr/local/bin/migrate \

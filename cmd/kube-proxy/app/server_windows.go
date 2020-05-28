@@ -32,18 +32,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/configz"
+	"k8s.io/component-base/metrics"
 	"k8s.io/kubernetes/pkg/proxy"
 	proxyconfigapi "k8s.io/kubernetes/pkg/proxy/apis/config"
 	proxyconfigscheme "k8s.io/kubernetes/pkg/proxy/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/proxy/healthcheck"
 	"k8s.io/kubernetes/pkg/proxy/winkernel"
 	"k8s.io/kubernetes/pkg/proxy/winuserspace"
-	"k8s.io/kubernetes/pkg/util/configz"
 	utilnetsh "k8s.io/kubernetes/pkg/util/netsh"
 	utilnode "k8s.io/kubernetes/pkg/util/node"
 	"k8s.io/utils/exec"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 // NewProxyServer returns a new ProxyServer.
@@ -67,6 +68,10 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
 		return &ProxyServer{}, nil
 	}
 
+	if len(config.ShowHiddenMetricsForVersion) > 0 {
+		metrics.SetShowHidden()
+	}
+
 	client, eventClient, err := createClients(config.ClientConnection, master)
 	if err != nil {
 		return nil, err
@@ -87,7 +92,7 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
 		Namespace: "",
 	}
 
-	var healthzServer *healthcheck.ProxierHealthServer
+	var healthzServer healthcheck.ProxierHealthUpdater
 	if len(config.HealthzBindAddress) > 0 {
 		healthzServer = healthcheck.NewProxierHealthServer(config.HealthzBindAddress, 2*config.IPTables.SyncPeriod.Duration, recorder, nodeRef)
 	}
@@ -133,19 +138,20 @@ func newProxyServer(config *proxyconfigapi.KubeProxyConfiguration, cleanupAndExi
 	}
 
 	return &ProxyServer{
-		Client:             client,
-		EventClient:        eventClient,
-		Proxier:            proxier,
-		Broadcaster:        eventBroadcaster,
-		Recorder:           recorder,
-		ProxyMode:          proxyMode,
-		NodeRef:            nodeRef,
-		MetricsBindAddress: config.MetricsBindAddress,
-		EnableProfiling:    config.EnableProfiling,
-		OOMScoreAdj:        config.OOMScoreAdj,
-		ConfigSyncPeriod:   config.ConfigSyncPeriod.Duration,
-		HealthzServer:      healthzServer,
-		UseEndpointSlices:  false,
+		Client:              client,
+		EventClient:         eventClient,
+		Proxier:             proxier,
+		Broadcaster:         eventBroadcaster,
+		Recorder:            recorder,
+		ProxyMode:           proxyMode,
+		NodeRef:             nodeRef,
+		MetricsBindAddress:  config.MetricsBindAddress,
+		BindAddressHardFail: config.BindAddressHardFail,
+		EnableProfiling:     config.EnableProfiling,
+		OOMScoreAdj:         config.OOMScoreAdj,
+		ConfigSyncPeriod:    config.ConfigSyncPeriod.Duration,
+		HealthzServer:       healthzServer,
+		UseEndpointSlices:   false,
 	}, nil
 }
 

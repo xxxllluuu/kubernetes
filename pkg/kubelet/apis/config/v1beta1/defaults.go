@@ -33,6 +33,7 @@ const (
 	// TODO: Move these constants to k8s.io/kubelet/config/v1beta1 instead?
 	DefaultIPTablesMasqueradeBit = 14
 	DefaultIPTablesDropBit       = 15
+	DefaultVolumePluginDir       = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
 )
 
 var (
@@ -47,6 +48,9 @@ func addDefaultingFuncs(scheme *kruntime.Scheme) error {
 }
 
 func SetDefaults_KubeletConfiguration(obj *kubeletconfigv1beta1.KubeletConfiguration) {
+	if obj.EnableServer == nil {
+		obj.EnableServer = utilpointer.BoolPtr(true)
+	}
 	if obj.SyncFrequency == zeroDuration {
 		obj.SyncFrequency = metav1.Duration{Duration: 1 * time.Minute}
 	}
@@ -222,5 +226,8 @@ func SetDefaults_KubeletConfiguration(obj *kubeletconfigv1beta1.KubeletConfigura
 	}
 	if obj.EnforceNodeAllocatable == nil {
 		obj.EnforceNodeAllocatable = DefaultNodeAllocatableEnforcement
+	}
+	if obj.VolumePluginDir == "" {
+		obj.VolumePluginDir = DefaultVolumePluginDir
 	}
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package e2enode
 
 import (
+	"context"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -26,18 +27,18 @@ import (
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	testutils "k8s.io/kubernetes/test/utils"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"github.com/onsi/ginkgo"
-	"github.com/onsi/gomega"
 )
 
 const (
 	defaultObservationTimeout = time.Minute * 4
 )
 
-var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFeature:StartupProbe]", func() {
+var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive]", func() {
 	f := framework.NewDefaultFramework("startup-probe-test")
 	var podClient *framework.PodClient
 	ginkgo.BeforeEach(func() {
@@ -61,7 +62,7 @@ var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFea
 			Testname: Pod startup probe restart
 			Description: A Pod is created with a failing startup probe. The Pod MUST be killed and restarted incrementing restart count to 1, even if liveness would succeed.
 		*/
-		framework.ConformanceIt("should be restarted startup probe fails [NodeConformance]", func() {
+		ginkgo.It("should be restarted startup probe fails", func() {
 			cmd := []string{"/bin/sh", "-c", "sleep 600"}
 			livenessProbe := &v1.Probe{
 				Handler: v1.Handler{
@@ -90,7 +91,7 @@ var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFea
 			Testname: Pod liveness probe delayed (long) by startup probe
 			Description: A Pod is created with failing liveness and startup probes. Liveness probe MUST NOT fail until startup probe expires.
 		*/
-		framework.ConformanceIt("should *not* be restarted by liveness probe because startup probe delays it [NodeConformance]", func() {
+		ginkgo.It("should *not* be restarted by liveness probe because startup probe delays it", func() {
 			cmd := []string{"/bin/sh", "-c", "sleep 600"}
 			livenessProbe := &v1.Probe{
 				Handler: v1.Handler{
@@ -117,9 +118,9 @@ var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFea
 		/*
 			Release : v1.16
 			Testname: Pod liveness probe fails after startup success
-			Description: A Pod is created with failing liveness probe and delayed startup probe that uses ‘exec’ command to cat /temp/health file. The Container is started by creating /tmp/startup after 10 seconds, triggering liveness probe to fail. The Pod MUST now be killed and restarted incrementing restart count to 1.
+			Description: A Pod is created with failing liveness probe and delayed startup probe that uses 'exec' command to cat /temp/health file. The Container is started by creating /tmp/startup after 10 seconds, triggering liveness probe to fail. The Pod MUST now be killed and restarted incrementing restart count to 1.
 		*/
-		framework.ConformanceIt("should be restarted by liveness probe after startup probe enables it [NodeConformance]", func() {
+		ginkgo.It("should be restarted by liveness probe after startup probe enables it", func() {
 			cmd := []string{"/bin/sh", "-c", "sleep 10; echo ok >/tmp/startup; sleep 600"}
 			livenessProbe := &v1.Probe{
 				Handler: v1.Handler{
@@ -148,7 +149,7 @@ var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFea
 			Testname: Pod readiness probe, delayed by startup probe
 			Description: A Pod is created with startup and readiness probes. The Container is started by creating /tmp/startup after 45 seconds, delaying the ready state by this amount of time. This is similar to the "Pod readiness probe, with initial delay" test.
 		*/
-		framework.ConformanceIt("should not be ready until startupProbe succeeds [NodeConformance]", func() {
+		ginkgo.It("should not be ready until startupProbe succeeds", func() {
 			cmd := []string{"/bin/sh", "-c", "echo ok >/tmp/health; sleep 45; echo ok >/tmp/startup; sleep 600"}
 			readinessProbe := &v1.Probe{
 				Handler: v1.Handler{
@@ -169,17 +170,17 @@ var _ = framework.KubeDescribe("StartupProbe [Serial] [Disruptive] [NodeAlphaFea
 			}
 			p := podClient.Create(startupPodSpec(startupProbe, readinessProbe, nil, cmd))
 
-			p, err := podClient.Get(p.Name, metav1.GetOptions{})
+			p, err := podClient.Get(context.TODO(), p.Name, metav1.GetOptions{})
 			framework.ExpectNoError(err)
 
-			f.WaitForPodReady(p.Name)
+			e2epod.WaitTimeoutForPodReadyInNamespace(f.ClientSet, p.Name, f.Namespace.Name, framework.PodStartTimeout)
 
-			p, err = podClient.Get(p.Name, metav1.GetOptions{})
+			p, err = podClient.Get(context.TODO(), p.Name, metav1.GetOptions{})
 			framework.ExpectNoError(err)
 
 			isReady, err := testutils.PodRunningReady(p)
 			framework.ExpectNoError(err)
-			gomega.Expect(isReady).To(gomega.BeTrue(), "pod should be ready")
+			framework.ExpectEqual(isReady, true, "pod should be ready")
 
 			// We assume the pod became ready when the container became ready. This
 			// is true for a single container pod.

@@ -17,6 +17,7 @@ limitations under the License.
 package testsuites
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"strings"
@@ -25,12 +26,13 @@ import (
 	"github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
-	"k8s.io/kubernetes/test/e2e/framework/volume"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
+	e2evolume "k8s.io/kubernetes/test/e2e/framework/volume"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	storageutils "k8s.io/kubernetes/test/e2e/storage/utils"
 )
@@ -80,7 +82,7 @@ func (p *ephemeralTestSuite) DefineTests(driver TestDriver, pattern testpatterns
 		ok := false
 		eDriver, ok = driver.(EphemeralTestDriver)
 		if !ok {
-			framework.Skipf("Driver %s doesn't support ephemeral inline volumes -- skipping", dInfo.Name)
+			e2eskipper.Skipf("Driver %s doesn't support ephemeral inline volumes -- skipping", dInfo.Name)
 		}
 	})
 
@@ -99,7 +101,7 @@ func (p *ephemeralTestSuite) DefineTests(driver TestDriver, pattern testpatterns
 			Client:     l.config.Framework.ClientSet,
 			Namespace:  f.Namespace.Name,
 			DriverName: eDriver.GetCSIDriverName(l.config),
-			Node:       e2epod.NodeSelection{Name: l.config.ClientNodeName},
+			Node:       l.config.ClientNodeSelection,
 			GetVolume: func(volumeNumber int) (map[string]string, bool, bool) {
 				return eDriver.GetVolume(l.config, volumeNumber)
 			},
@@ -246,7 +248,7 @@ func (t EphemeralTest) TestEphemeral() {
 			VolumeAttributes: attributes,
 		}
 		if readOnly && !t.ReadOnly {
-			framework.Skipf("inline ephemeral volume #%d is read-only, but the test needs a read/write volume", i)
+			e2eskipper.Skipf("inline ephemeral volume #%d is read-only, but the test needs a read/write volume", i)
 		}
 		csiVolumes = append(csiVolumes, csi)
 	}
@@ -256,7 +258,7 @@ func (t EphemeralTest) TestEphemeral() {
 		StopPod(client, pod)
 	}()
 	framework.ExpectNoError(e2epod.WaitForPodRunningInNamespaceSlow(client, pod.Name, pod.Namespace), "waiting for pod with inline volume")
-	runningPod, err := client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
+	runningPod, err := client.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 	framework.ExpectNoError(err, "get pod")
 	actualNodeName := runningPod.Spec.NodeName
 
@@ -289,19 +291,17 @@ func StartInPodWithInlineVolume(c clientset.Interface, ns, podName, command stri
 			},
 		},
 		Spec: v1.PodSpec{
-			NodeName:     node.Name,
-			NodeSelector: node.Selector,
-			Affinity:     node.Affinity,
 			Containers: []v1.Container{
 				{
 					Name:    "csi-volume-tester",
-					Image:   volume.GetTestImage(framework.BusyBoxImage),
-					Command: volume.GenerateScriptCmd(command),
+					Image:   e2evolume.GetTestImage(framework.BusyBoxImage),
+					Command: e2evolume.GenerateScriptCmd(command),
 				},
 			},
 			RestartPolicy: v1.RestartPolicyNever,
 		},
 	}
+	e2epod.SetNodeSelection(&pod.Spec, node)
 
 	for i, csiVolume := range csiVolumes {
 		name := fmt.Sprintf("my-volume-%d", i)
@@ -320,7 +320,7 @@ func StartInPodWithInlineVolume(c clientset.Interface, ns, podName, command stri
 			})
 	}
 
-	pod, err := c.CoreV1().Pods(ns).Create(pod)
+	pod, err := c.CoreV1().Pods(ns).Create(context.TODO(), pod, metav1.CreateOptions{})
 	framework.ExpectNoError(err, "failed to create pod")
 	return pod
 }
@@ -363,14 +363,14 @@ func CSIInlineVolumesEnabled(c clientset.Interface, ns string) (bool, error) {
 		},
 	}
 
-	pod, err := c.CoreV1().Pods(ns).Create(pod)
+	pod, err := c.CoreV1().Pods(ns).Create(context.TODO(), pod, metav1.CreateOptions{})
 
 	switch {
 	case err == nil:
 		// Pod was created, feature supported.
 		StopPod(c, pod)
 		return true, nil
-	case errors.IsInvalid(err):
+	case apierrors.IsInvalid(err):
 		// "Invalid" because it uses a feature that isn't supported.
 		return false, nil
 	default:

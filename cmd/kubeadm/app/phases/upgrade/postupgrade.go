@@ -17,15 +17,18 @@ limitations under the License.
 package upgrade
 
 import (
+	"context"
 	"os"
 
 	"github.com/pkg/errors"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	errorsutil "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	"k8s.io/kubernetes/cmd/kubeadm/app/phases/addons/dns"
@@ -68,6 +71,11 @@ func PerformPostUpgradeTasks(client clientset.Interface, cfg *kubeadmapi.InitCon
 		errs = append(errs, errors.Wrap(err, "error uploading crisocket"))
 	}
 
+	// Create RBAC rules that makes the bootstrap tokens able to get nodes
+	if err := nodebootstraptoken.AllowBoostrapTokensToGetNodes(client); err != nil {
+		errs = append(errs, err)
+	}
+
 	// Create/update RBAC rules that makes the bootstrap tokens able to post CSRs
 	if err := nodebootstraptoken.AllowBootstrapTokensToPostCSRs(client); err != nil {
 		errs = append(errs, err)
@@ -93,18 +101,68 @@ func PerformPostUpgradeTasks(client clientset.Interface, cfg *kubeadmapi.InitCon
 		errs = append(errs, err)
 	}
 
-	// Upgrade kube-dns/CoreDNS and kube-proxy
-	if err := dns.EnsureDNSAddon(&cfg.ClusterConfiguration, client); err != nil {
-		errs = append(errs, err)
+	// If the coredns / kube-dns ConfigMaps are missing, show a warning and assume that the
+	// DNS addon was skipped during "kubeadm init", and that its redeployment on upgrade is not desired.
+	//
+	// TODO: remove this once "kubeadm upgrade apply" phases are supported:
+	//   https://github.com/kubernetes/kubeadm/issues/1318
+	var missingCoreDNSConfigMap, missingKubeDNSConfigMap bool
+	if _, err := client.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(
+		context.TODO(),
+		kubeadmconstants.CoreDNSConfigMap,
+		metav1.GetOptions{},
+	); err != nil && apierrors.IsNotFound(err) {
+		missingCoreDNSConfigMap = true
 	}
-	// Remove the old DNS deployment if a new DNS service is now used (kube-dns to CoreDNS or vice versa)
-	if err := removeOldDNSDeploymentIfAnotherDNSIsUsed(&cfg.ClusterConfiguration, client, dryRun); err != nil {
-		errs = append(errs, err)
+	if _, err := client.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(
+		context.TODO(),
+		kubeadmconstants.KubeDNSConfigMap,
+		metav1.GetOptions{},
+	); err != nil && apierrors.IsNotFound(err) {
+		missingKubeDNSConfigMap = true
+	}
+	if missingCoreDNSConfigMap && missingKubeDNSConfigMap {
+		klog.Warningf("the ConfigMaps %q/%q in the namespace %q were not found. "+
+			"Assuming that a DNS server was not deployed for this cluster. "+
+			"Note that once 'kubeadm upgrade apply' supports phases you "+
+			"will have to skip the DNS upgrade manually",
+			kubeadmconstants.CoreDNSConfigMap,
+			kubeadmconstants.KubeDNSConfigMap,
+			metav1.NamespaceSystem)
+	} else {
+		// Upgrade CoreDNS/kube-dns
+		if err := dns.EnsureDNSAddon(&cfg.ClusterConfiguration, client); err != nil {
+			errs = append(errs, err)
+		}
+		// Remove the old DNS deployment if a new DNS service is now used (kube-dns to CoreDNS or vice versa)
+		if err := removeOldDNSDeploymentIfAnotherDNSIsUsed(&cfg.ClusterConfiguration, client, dryRun); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	if err := proxy.EnsureProxyAddon(&cfg.ClusterConfiguration, &cfg.LocalAPIEndpoint, client); err != nil {
-		errs = append(errs, err)
+	// If the kube-proxy ConfigMap is missing, show a warning and assume that kube-proxy
+	// was skipped during "kubeadm init", and that its redeployment on upgrade is not desired.
+	//
+	// TODO: remove this once "kubeadm upgrade apply" phases are supported:
+	//   https://github.com/kubernetes/kubeadm/issues/1318
+	if _, err := client.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(
+		context.TODO(),
+		kubeadmconstants.KubeProxyConfigMap,
+		metav1.GetOptions{},
+	); err != nil && apierrors.IsNotFound(err) {
+		klog.Warningf("the ConfigMap %q in the namespace %q was not found. "+
+			"Assuming that kube-proxy was not deployed for this cluster. "+
+			"Note that once 'kubeadm upgrade apply' supports phases you "+
+			"will have to skip the kube-proxy upgrade manually",
+			kubeadmconstants.KubeProxyConfigMap,
+			metav1.NamespaceSystem)
+	} else {
+		// Upgrade kube-proxy
+		if err := proxy.EnsureProxyAddon(&cfg.ClusterConfiguration, &cfg.LocalAPIEndpoint, client); err != nil {
+			errs = append(errs, err)
+		}
 	}
+
 	return errorsutil.NewAggregate(errs)
 }
 
@@ -118,9 +176,16 @@ func removeOldDNSDeploymentIfAnotherDNSIsUsed(cfg *kubeadmapi.ClusterConfigurati
 			deploymentToDelete = kubeadmconstants.KubeDNSDeploymentName
 		}
 
-		// If we're dry-running, we don't need to wait for the new DNS addon to become ready
-		if !dryRun {
-			dnsDeployment, err := client.AppsV1().Deployments(metav1.NamespaceSystem).Get(installedDeploymentName, metav1.GetOptions{})
+		nodes, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
+			FieldSelector: fields.Set{"spec.unschedulable": "false"}.AsSelector().String(),
+		})
+		if err != nil {
+			return err
+		}
+
+		// If we're dry-running or there are no scheduable nodes available, we don't need to wait for the new DNS addon to become ready
+		if !dryRun && len(nodes.Items) != 0 {
+			dnsDeployment, err := client.AppsV1().Deployments(metav1.NamespaceSystem).Get(context.TODO(), installedDeploymentName, metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
@@ -131,7 +196,7 @@ func removeOldDNSDeploymentIfAnotherDNSIsUsed(cfg *kubeadmapi.ClusterConfigurati
 
 		// We don't want to wait for the DNS deployment above to become ready when dryrunning (as it never will)
 		// but here we should execute the DELETE command against the dryrun clientset, as it will only be logged
-		err := apiclient.DeleteDeploymentForeground(client, metav1.NamespaceSystem, deploymentToDelete)
+		err = apiclient.DeleteDeploymentForeground(client, metav1.NamespaceSystem, deploymentToDelete)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}

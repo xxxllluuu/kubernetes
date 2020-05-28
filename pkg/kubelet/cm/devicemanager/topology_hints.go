@@ -19,7 +19,7 @@ package devicemanager
 import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager"
 	"k8s.io/kubernetes/pkg/kubelet/cm/topologymanager/bitmask"
 )
@@ -27,9 +27,9 @@ import (
 // GetTopologyHints implements the TopologyManager HintProvider Interface which
 // ensures the Device Manager is consulted when Topology Aware Hints for each
 // container are created.
-func (m *ManagerImpl) GetTopologyHints(pod v1.Pod, container v1.Container) map[string][]topologymanager.TopologyHint {
+func (m *ManagerImpl) GetTopologyHints(pod *v1.Pod, container *v1.Container) map[string][]topologymanager.TopologyHint {
 	// Garbage collect any stranded device resources before providing TopologyHints
-	m.updateAllocatedDevices(m.activePods())
+	m.UpdateAllocatedDevices()
 
 	// Loop through all device resources and generate TopologyHints for them..
 	deviceHints := make(map[string][]topologymanager.TopologyHint)

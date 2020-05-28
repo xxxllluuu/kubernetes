@@ -28,6 +28,7 @@ limitations under the License.
 package replicaset
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sort"
@@ -55,7 +56,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/utils/integer"
@@ -213,7 +214,7 @@ func (rsc *ReplicaSetController) getReplicaSetsWithSameController(rs *apps.Repli
 		}
 	}
 
-	if klog.V(2) {
+	if klog.V(2).Enabled() {
 		var related string
 		if len(relatedRSs) > 0 {
 			var relatedNames []string
@@ -714,7 +715,7 @@ func (rsc *ReplicaSetController) claimPods(rs *apps.ReplicaSet, selector labels.
 	// If any adoptions are attempted, we should first recheck for deletion with
 	// an uncached quorum read sometime after listing Pods (see #42639).
 	canAdoptFunc := controller.RecheckDeletionTimestamp(func() (metav1.Object, error) {
-		fresh, err := rsc.kubeClient.AppsV1().ReplicaSets(rs.Namespace).Get(rs.Name, metav1.GetOptions{})
+		fresh, err := rsc.kubeClient.AppsV1().ReplicaSets(rs.Namespace).Get(context.TODO(), rs.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -787,7 +788,7 @@ func (rsc *ReplicaSetController) getIndirectlyRelatedPods(rs *apps.ReplicaSet) (
 			relatedPods = append(relatedPods, pod)
 		}
 	}
-	if klog.V(4) {
+	if klog.V(4).Enabled() {
 		var relatedNames []string
 		for _, related := range relatedPods {
 			relatedNames = append(relatedNames, related.Name)

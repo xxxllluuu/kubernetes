@@ -16,9 +16,11 @@
 
 KUBE_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 
-# This command builds and runs a local kubernetes cluster.
-# You may need to run this as root to allow kubelet to open docker's socket,
-# and to write the test CA in /var/run/kubernetes.
+# This script builds and runs a local kubernetes cluster. You may need to run
+# this as root to allow kubelet to open docker's socket, and to write the test
+# CA in /var/run/kubernetes.
+# Usage: `hack/local-up-cluster.sh`.
+
 DOCKER_OPTS=${DOCKER_OPTS:-""}
 export DOCKER=(docker "${DOCKER_OPTS[@]}")
 DOCKER_ROOT=${DOCKER_ROOT:-""}
@@ -40,6 +42,7 @@ NET_PLUGIN=${NET_PLUGIN:-""}
 # eg: "/etc/cni/net.d" for config files, and "/opt/cni/bin" for binaries.
 CNI_CONF_DIR=${CNI_CONF_DIR:-""}
 CNI_BIN_DIR=${CNI_BIN_DIR:-""}
+CLUSTER_CIDR=${CLUSTER_CIDR:-10.1.0.0/16}
 SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-10.0.0.0/24}
 FIRST_SERVICE_CLUSTER_IP=${FIRST_SERVICE_CLUSTER_IP:-10.0.0.1}
 # if enabled, must set CGROUP_ROOT
@@ -74,11 +77,13 @@ ENABLE_DAEMON=${ENABLE_DAEMON:-false}
 HOSTNAME_OVERRIDE=${HOSTNAME_OVERRIDE:-"127.0.0.1"}
 EXTERNAL_CLOUD_PROVIDER=${EXTERNAL_CLOUD_PROVIDER:-false}
 EXTERNAL_CLOUD_PROVIDER_BINARY=${EXTERNAL_CLOUD_PROVIDER_BINARY:-""}
+EXTERNAL_CLOUD_VOLUME_PLUGIN=${EXTERNAL_CLOUD_VOLUME_PLUGIN:-""}
 CLOUD_PROVIDER=${CLOUD_PROVIDER:-""}
 CLOUD_CONFIG=${CLOUD_CONFIG:-""}
+KUBELET_PROVIDER_ID=${KUBELET_PROVIDER_ID:-"$(hostname)"}
 FEATURE_GATES=${FEATURE_GATES:-"AllAlpha=false"}
 STORAGE_BACKEND=${STORAGE_BACKEND:-"etcd3"}
-STORAGE_MEDIA_TYPE=${STORAGE_MEDIA_TYPE:-""}
+STORAGE_MEDIA_TYPE=${STORAGE_MEDIA_TYPE:-"application/vnd.kubernetes.protobuf"}
 # preserve etcd data. you also need to set ETCD_DIR.
 PRESERVE_ETCD="${PRESERVE_ETCD:-false}"
 
@@ -131,11 +136,6 @@ if [ "${CLOUD_PROVIDER}" == "openstack" ]; then
         echo "Cloud config ${CLOUD_CONFIG} doesn't exist"
         exit 1
     fi
-fi
-
-# warn if users are running with swap allowed
-if [ "${FAIL_SWAP_ON}" == "false" ]; then
-    echo "WARNING : The kubelet is configured to not fail even if swap is enabled; production deployments should disable swap."
 fi
 
 if [ "$(id -u)" != "0" ]; then
@@ -236,9 +236,8 @@ ENABLE_CONTROLLER_ATTACH_DETACH=${ENABLE_CONTROLLER_ATTACH_DETACH:-"true"} # cur
 # which should be able to be used as the CA to verify itself
 CERT_DIR=${CERT_DIR:-"/var/run/kubernetes"}
 ROOT_CA_FILE=${CERT_DIR}/server-ca.crt
-ROOT_CA_KEY=${CERT_DIR}/server-ca.key
-CLUSTER_SIGNING_CERT_FILE=${CLUSTER_SIGNING_CERT_FILE:-"${ROOT_CA_FILE}"}
-CLUSTER_SIGNING_KEY_FILE=${CLUSTER_SIGNING_KEY_FILE:-"${ROOT_CA_KEY}"}
+CLUSTER_SIGNING_CERT_FILE=${CLUSTER_SIGNING_CERT_FILE:-"${CERT_DIR}/client-ca.crt"}
+CLUSTER_SIGNING_KEY_FILE=${CLUSTER_SIGNING_KEY_FILE:-"${CERT_DIR}/client-ca.key"}
 # Reuse certs will skip generate new ca/cert files under CERT_DIR
 # it's useful with PRESERVE_ETCD=true because new ca will make existed service account secrets invalided
 REUSE_CERTS=${REUSE_CERTS:-false}
@@ -352,6 +351,10 @@ cleanup()
   # Check if the controller-manager is still running
   [[ -n "${CTLRMGR_PID-}" ]] && kube::util::read-array CTLRMGR_PIDS < <(pgrep -P "${CTLRMGR_PID}" ; ps -o pid= -p "${CTLRMGR_PID}")
   [[ -n "${CTLRMGR_PIDS-}" ]] && sudo kill "${CTLRMGR_PIDS[@]}" 2>/dev/null
+
+  # Check if the cloud-controller-manager is still running
+  [[ -n "${CLOUD_CTLRMGR_PID-}" ]] && kube::util::read-array CLOUD_CTLRMGR_PIDS < <(pgrep -P "${CLOUD_CTLRMGR_PID}" ; ps -o pid= -p "${CLOUD_CTLRMGR_PID}")
+  [[ -n "${CLOUD_CTLRMGR_PIDS-}" ]] && sudo kill "${CLOUD_CTLRMGR_PIDS[@]}" 2>/dev/null
 
   # Check if the kubelet is still running
   [[ -n "${KUBELET_PID-}" ]] && kube::util::read-array KUBELET_PIDS < <(pgrep -P "${KUBELET_PID}" ; ps -o pid= -p "${KUBELET_PID}")
@@ -561,6 +564,8 @@ EOF
       --kubelet-client-key="${CERT_DIR}/client-kube-apiserver.key" \
       --service-account-key-file="${SERVICE_ACCOUNT_KEY}" \
       --service-account-lookup="${SERVICE_ACCOUNT_LOOKUP}" \
+      --service-account-issuer="https://kubernetes.default.svc" \
+      --service-account-signing-key-file="${SERVICE_ACCOUNT_KEY}" \
       --enable-admission-plugins="${ENABLE_ADMISSION_PLUGINS}" \
       --disable-admission-plugins="${DISABLE_ADMISSION_PLUGINS}" \
       --admission-control-config-file="${ADMISSION_CONTROL_CONFIG_FILE}" \
@@ -604,6 +609,9 @@ EOF
     # Grant apiserver permission to speak to the kubelet
     ${KUBECTL} --kubeconfig "${CERT_DIR}/admin.kubeconfig" create clusterrolebinding kube-apiserver-kubelet-admin --clusterrole=system:kubelet-api-admin --user=kube-apiserver
 
+    # Grant kubelets permission to request client certificates
+    ${KUBECTL} --kubeconfig "${CERT_DIR}/admin.kubeconfig" create clusterrolebinding kubelet-csr --clusterrole=system:certificates.k8s.io:certificatesigningrequests:selfnodeclient --group=system:nodes
+
     ${CONTROLPLANE_SUDO} cp "${CERT_DIR}/admin.kubeconfig" "${CERT_DIR}/admin-kube-aggregator.kubeconfig"
     ${CONTROLPLANE_SUDO} chown "$(whoami)" "${CERT_DIR}/admin-kube-aggregator.kubeconfig"
     ${KUBECTL} config set-cluster local-up-cluster --kubeconfig="${CERT_DIR}/admin-kube-aggregator.kubeconfig" --server="https://${API_HOST_IP}:31090"
@@ -614,13 +622,13 @@ EOF
 function start_controller_manager {
     node_cidr_args=()
     if [[ "${NET_PLUGIN}" == "kubenet" ]]; then
-      node_cidr_args=("--allocate-node-cidrs=true" "--cluster-cidr=10.1.0.0/16")
+      node_cidr_args=("--allocate-node-cidrs=true" "--cluster-cidr=${CLUSTER_CIDR}")
     fi
 
     cloud_config_arg=("--cloud-provider=${CLOUD_PROVIDER}" "--cloud-config=${CLOUD_CONFIG}")
     if [[ "${EXTERNAL_CLOUD_PROVIDER:-}" == "true" ]]; then
       cloud_config_arg=("--cloud-provider=external")
-      cloud_config_arg+=("--external-cloud-volume-plugin=${CLOUD_PROVIDER}")
+      cloud_config_arg+=("--external-cloud-volume-plugin=${EXTERNAL_CLOUD_VOLUME_PLUGIN}")
       cloud_config_arg+=("--cloud-config=${CLOUD_CONFIG}")
     fi
 
@@ -658,7 +666,7 @@ function start_cloud_controller_manager {
 
     node_cidr_args=()
     if [[ "${NET_PLUGIN}" == "kubenet" ]]; then
-      node_cidr_args=("--allocate-node-cidrs=true" "--cluster-cidr=10.1.0.0/16")
+      node_cidr_args=("--allocate-node-cidrs=true" "--cluster-cidr=${CLUSTER_CIDR}")
     fi
 
     CLOUD_CTLRMGR_LOG=${LOG_DIR}/cloud-controller-manager.log
@@ -680,7 +688,7 @@ function wait_node_ready(){
   # check the nodes information after kubelet daemon start
   local nodes_stats="${KUBECTL} --kubeconfig '${CERT_DIR}/admin.kubeconfig' get nodes"
   local node_name=$HOSTNAME_OVERRIDE
-  local system_node_wait_time=30
+  local system_node_wait_time=60
   local interval_time=2
   kube::util::wait_for_success "$system_node_wait_time" "$interval_time" "$nodes_stats | grep $node_name"
   if [ $? == "1" ]; then
@@ -696,7 +704,11 @@ function start_kubelet {
     cloud_config_arg=("--cloud-provider=${CLOUD_PROVIDER}" "--cloud-config=${CLOUD_CONFIG}")
     if [[ "${EXTERNAL_CLOUD_PROVIDER:-}" == "true" ]]; then
        cloud_config_arg=("--cloud-provider=external")
-       cloud_config_arg+=("--provider-id=$(hostname)")
+       if [[ "${CLOUD_PROVIDER:-}" == "aws" ]]; then
+         cloud_config_arg+=("--provider-id=$(curl http://169.254.169.254/latest/meta-data/instance-id)")
+       else
+         cloud_config_arg+=("--provider-id=${KUBELET_PROVIDER_ID}")
+       fi
     fi
 
     mkdir -p "/var/lib/kubelet" &>/dev/null || sudo mkdir -p "/var/lib/kubelet"
@@ -760,7 +772,9 @@ function start_kubelet {
       "--hostname-override=${HOSTNAME_OVERRIDE}"
       "${cloud_config_arg[@]}"
       "--address=${KUBELET_HOST}"
-      --kubeconfig "${CERT_DIR}"/kubelet.kubeconfig
+      "--bootstrap-kubeconfig=${CERT_DIR}/kubelet.kubeconfig"
+      "--kubeconfig=${CERT_DIR}/kubelet-rotated.kubeconfig"
+      "--rotate-certificates=true"
       "--feature-gates=${FEATURE_GATES}"
       "--cpu-cfs-quota=${CPU_CFS_QUOTA}"
       "--enable-controller-attach-detach=${ENABLE_CONTROLLER_ATTACH_DETACH}"
@@ -784,7 +798,15 @@ function start_kubelet {
       ${KUBELET_FLAGS}
     )
 
+    # warn if users are running with swap allowed
+    if [ "${FAIL_SWAP_ON}" == "false" ]; then
+        echo "WARNING : The kubelet is configured to not fail even if swap is enabled; production deployments should disable swap."
+    fi
+    
     if [[ "${REUSE_CERTS}" != true ]]; then
+        # clear previous dynamic certs
+        sudo rm -fr "/var/lib/kubelet/pki" "${CERT_DIR}/kubelet-rotated.kubeconfig"
+        # create new certs
         generate_kubelet_certs
     fi
 
@@ -838,12 +860,19 @@ EOF
 }
 
 function start_kubescheduler {
-
     SCHEDULER_LOG=${LOG_DIR}/kube-scheduler.log
+
+    cat <<EOF > /tmp/kube-scheduler.yaml
+apiVersion: kubescheduler.config.k8s.io/v1alpha2
+kind: KubeSchedulerConfiguration
+clientConnection:
+  kubeconfig: ${CERT_DIR}/scheduler.kubeconfig
+leaderElection:
+  leaderElect: false
+EOF
     ${CONTROLPLANE_SUDO} "${GO_OUT}/kube-scheduler" \
       --v="${LOG_LEVEL}" \
-      --leader-elect=false \
-      --kubeconfig "${CERT_DIR}"/scheduler.kubeconfig \
+      --config=/tmp/kube-scheduler.yaml \
       --feature-gates="${FEATURE_GATES}" \
       --master="https://${API_HOST}:${API_SECURE_PORT}" >"${SCHEDULER_LOG}" 2>&1 &
     SCHEDULER_PID=$!

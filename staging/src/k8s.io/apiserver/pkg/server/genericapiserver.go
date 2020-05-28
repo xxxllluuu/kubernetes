@@ -45,7 +45,7 @@ import (
 	"k8s.io/apiserver/pkg/server/routes"
 	utilopenapi "k8s.io/apiserver/pkg/util/openapi"
 	restclient "k8s.io/client-go/rest"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	openapibuilder "k8s.io/kube-openapi/pkg/builder"
 	openapicommon "k8s.io/kube-openapi/pkg/common"
 	"k8s.io/kube-openapi/pkg/handler"
@@ -318,7 +318,13 @@ func (s preparedGenericAPIServer) Run(stopCh <-chan struct{}) error {
 
 	go func() {
 		defer close(delayedStopCh)
+
 		<-stopCh
+
+		// As soon as shutdown is initiated, /readyz should start returning failure.
+		// This gives the load balancer a window defined by ShutdownDelayDuration to detect that /readyz is red
+		// and stop sending traffic to this server.
+		close(s.readinessStopCh)
 
 		time.Sleep(s.ShutdownDelayDuration)
 	}()
@@ -379,7 +385,6 @@ func (s preparedGenericAPIServer) NonBlockingRun(stopCh <-chan struct{}) error {
 	// ensure cleanup.
 	go func() {
 		<-stopCh
-		close(s.readinessStopCh)
 		close(internalStopCh)
 		if stoppedCh != nil {
 			<-stoppedCh

@@ -19,13 +19,20 @@ limitations under the License.
 package azure
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	v1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	networkResourceTenantID       = "networkResourceTenantID"
+	networkResourceSubscriptionID = "networkResourceSubscriptionID"
 )
 
 func TestIsMasterNode(t *testing.T) {
@@ -55,33 +62,44 @@ func TestIsMasterNode(t *testing.T) {
 func TestGetLastSegment(t *testing.T) {
 	tests := []struct {
 		ID        string
+		separator string
 		expected  string
 		expectErr bool
 	}{
 		{
 			ID:        "",
+			separator: "/",
 			expected:  "",
 			expectErr: true,
 		},
 		{
 			ID:        "foo/",
+			separator: "/",
 			expected:  "",
 			expectErr: true,
 		},
 		{
 			ID:        "foo/bar",
+			separator: "/",
 			expected:  "bar",
 			expectErr: false,
 		},
 		{
 			ID:        "foo/bar/baz",
+			separator: "/",
 			expected:  "baz",
+			expectErr: false,
+		},
+		{
+			ID:        "k8s-agentpool-36841236-vmss_1",
+			separator: "_",
+			expected:  "1",
 			expectErr: false,
 		},
 	}
 
 	for _, test := range tests {
-		s, e := getLastSegment(test.ID)
+		s, e := getLastSegment(test.ID, test.separator)
 		if test.expectErr && e == nil {
 			t.Errorf("Expected err, but it was nil")
 			continue
@@ -127,7 +145,9 @@ func TestGenerateStorageAccountName(t *testing.T) {
 }
 
 func TestMapLoadBalancerNameToVMSet(t *testing.T) {
-	az := getTestCloud()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
 	az.PrimaryAvailabilitySetName = "primary"
 
 	cases := []struct {
@@ -175,7 +195,9 @@ func TestMapLoadBalancerNameToVMSet(t *testing.T) {
 }
 
 func TestGetAzureLoadBalancerName(t *testing.T) {
-	az := getTestCloud()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
 	az.PrimaryAvailabilitySetName = "primary"
 
 	cases := []struct {
@@ -256,7 +278,9 @@ func TestGetAzureLoadBalancerName(t *testing.T) {
 }
 
 func TestGetLoadBalancingRuleName(t *testing.T) {
-	az := getTestCloud()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
 	az.PrimaryAvailabilitySetName = "primary"
 
 	svc := &v1.Service{
@@ -337,7 +361,9 @@ func TestGetLoadBalancingRuleName(t *testing.T) {
 }
 
 func TestGetFrontendIPConfigName(t *testing.T) {
-	az := getTestCloud()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
 	az.PrimaryAvailabilitySetName = "primary"
 
 	svc := &v1.Service{
@@ -405,5 +431,83 @@ func TestGetFrontendIPConfigName(t *testing.T) {
 
 		ipconfigName := az.getFrontendIPConfigName(svc)
 		assert.Equal(t, c.expected, ipconfigName, c.description)
+	}
+}
+
+func TestGetFrontendIPConfigID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
+
+	testGetLoadBalancerSubResourceID(t, az, az.getFrontendIPConfigID, frontendIPConfigIDTemplate)
+}
+
+func TestGetBackendPoolID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
+
+	testGetLoadBalancerSubResourceID(t, az, az.getBackendPoolID, backendPoolIDTemplate)
+}
+
+func TestGetLoadBalancerProbeID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	az := GetTestCloud(ctrl)
+
+	testGetLoadBalancerSubResourceID(t, az, az.getLoadBalancerProbeID, loadBalancerProbeIDTemplate)
+}
+
+func testGetLoadBalancerSubResourceID(
+	t *testing.T,
+	az *Cloud,
+	getLoadBalancerSubResourceID func(string, string, string) string,
+	expectedResourceIDTemplate string) {
+	cases := []struct {
+		description                         string
+		loadBalancerName                    string
+		resourceGroupName                   string
+		subResourceName                     string
+		useNetworkResourceInDifferentTenant bool
+		expected                            string
+	}{
+		{
+			description:                         "resource id should contain NetworkResourceSubscriptionID when using network resources in different subscription",
+			loadBalancerName:                    "lbName",
+			resourceGroupName:                   "rgName",
+			subResourceName:                     "subResourceName",
+			useNetworkResourceInDifferentTenant: true,
+		},
+		{
+			description:                         "resource id should contain SubscriptionID when not using network resources in different subscription",
+			loadBalancerName:                    "lbName",
+			resourceGroupName:                   "rgName",
+			subResourceName:                     "subResourceName",
+			useNetworkResourceInDifferentTenant: false,
+		},
+	}
+
+	for _, c := range cases {
+		if c.useNetworkResourceInDifferentTenant {
+			az.NetworkResourceTenantID = networkResourceTenantID
+			az.NetworkResourceSubscriptionID = networkResourceSubscriptionID
+			c.expected = fmt.Sprintf(
+				expectedResourceIDTemplate,
+				az.NetworkResourceSubscriptionID,
+				c.resourceGroupName,
+				c.loadBalancerName,
+				c.subResourceName)
+		} else {
+			az.NetworkResourceTenantID = ""
+			az.NetworkResourceSubscriptionID = ""
+			c.expected = fmt.Sprintf(
+				expectedResourceIDTemplate,
+				az.SubscriptionID,
+				c.resourceGroupName,
+				c.loadBalancerName,
+				c.subResourceName)
+		}
+		subResourceID := getLoadBalancerSubResourceID(c.loadBalancerName, c.resourceGroupName, c.subResourceName)
+		assert.Equal(t, c.expected, subResourceID, c.description)
 	}
 }

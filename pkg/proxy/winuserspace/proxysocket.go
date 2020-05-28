@@ -30,7 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/proxy"
 	"k8s.io/kubernetes/pkg/util/ipconfig"
 	"k8s.io/utils/exec"
@@ -617,7 +617,7 @@ func (udp *udpProxySocket) proxyClient(cliAddr net.Addr, svrConn net.Conn, activ
 				klog.Errorf("SetDeadline failed: %v", err)
 				break
 			}
-			n, err = udp.WriteTo(buffer[0:n], cliAddr)
+			_, err = udp.WriteTo(buffer[0:n], cliAddr)
 			if err != nil {
 				if !logTimeout(err) {
 					klog.Errorf("WriteTo failed: %v", err)

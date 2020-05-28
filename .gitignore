@@ -94,10 +94,6 @@ network_closure.sh
 # CoreOS stuff
 /cluster/libvirt-coreos/coreos_*.img
 
-# Juju Stuff
-/cluster/juju/charms/*
-/cluster/juju/bundles/local.yaml
-
 # Downloaded Kubernetes binary release
 /kubernetes/
 
@@ -128,9 +124,6 @@ zz_generated_*_test.go
 
 # This file used by some vendor repos (e.g. github.com/go-openapi/...) to store secret variables and should not be ignored
 !\.drone\.sec
-
-# Godeps workspace
-/Godeps/_workspace
 
 /bazel-*
 *.pyc

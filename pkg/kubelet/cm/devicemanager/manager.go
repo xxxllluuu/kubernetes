@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -48,7 +48,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/metrics"
 	"k8s.io/kubernetes/pkg/kubelet/pluginmanager/cache"
-	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	"k8s.io/kubernetes/pkg/util/selinux"
 )
 
@@ -105,6 +105,10 @@ type ManagerImpl struct {
 
 	// Store of Topology Affinties that the Device Manager can query.
 	topologyAffinityStore topologymanager.Store
+
+	// devicesToReuse contains devices that can be reused as they have been allocated to
+	// init containers.
+	devicesToReuse PodReusableDevices
 }
 
 type endpointInfo struct {
@@ -113,6 +117,9 @@ type endpointInfo struct {
 }
 
 type sourcesReadyStub struct{}
+
+// PodReusableDevices is a map by pod name of devices to reuse.
+type PodReusableDevices map[string]map[string]sets.String
 
 func (s *sourcesReadyStub) AddSource(source string) {}
 func (s *sourcesReadyStub) AllReady() bool          { return true }
@@ -147,6 +154,7 @@ func newManagerImpl(socketPath string, numaNodeInfo cputopology.NUMANodeInfo, to
 		podDevices:            make(podDevices),
 		numaNodes:             numaNodes,
 		topologyAffinityStore: topologyAffinityStore,
+		devicesToReuse:        make(PodReusableDevices),
 	}
 	manager.callback = manager.genericDeviceUpdateCallback
 
@@ -350,32 +358,41 @@ func (m *ManagerImpl) isVersionCompatibleWithPlugin(versions []string) bool {
 	return false
 }
 
-func (m *ManagerImpl) allocatePodResources(pod *v1.Pod) error {
-	devicesToReuse := make(map[string]sets.String)
-	for _, container := range pod.Spec.InitContainers {
-		if err := m.allocateContainerResources(pod, &container, devicesToReuse); err != nil {
-			return err
-		}
-		m.podDevices.addContainerAllocatedResources(string(pod.UID), container.Name, devicesToReuse)
-	}
-	for _, container := range pod.Spec.Containers {
-		if err := m.allocateContainerResources(pod, &container, devicesToReuse); err != nil {
-			return err
-		}
-		m.podDevices.removeContainerAllocatedResources(string(pod.UID), container.Name, devicesToReuse)
-	}
-	return nil
-}
-
 // Allocate is the call that you can use to allocate a set of devices
 // from the registered device plugins.
-func (m *ManagerImpl) Allocate(node *schedulernodeinfo.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
-	pod := attrs.Pod
-	err := m.allocatePodResources(pod)
-	if err != nil {
-		klog.Errorf("Failed to allocate device plugin resource for pod %s: %v", string(pod.UID), err)
+func (m *ManagerImpl) Allocate(pod *v1.Pod, container *v1.Container) error {
+	if _, ok := m.devicesToReuse[string(pod.UID)]; !ok {
+		m.devicesToReuse[string(pod.UID)] = make(map[string]sets.String)
+	}
+	// If pod entries to m.devicesToReuse other than the current pod exist, delete them.
+	for podUID := range m.devicesToReuse {
+		if podUID != string(pod.UID) {
+			delete(m.devicesToReuse, podUID)
+		}
+	}
+	// Allocate resources for init containers first as we know the caller always loops
+	// through init containers before looping through app containers. Should the caller
+	// ever change those semantics, this logic will need to be amended.
+	for _, initContainer := range pod.Spec.InitContainers {
+		if container.Name == initContainer.Name {
+			if err := m.allocateContainerResources(pod, container, m.devicesToReuse[string(pod.UID)]); err != nil {
+				return err
+			}
+			m.podDevices.addContainerAllocatedResources(string(pod.UID), container.Name, m.devicesToReuse[string(pod.UID)])
+			return nil
+		}
+	}
+	if err := m.allocateContainerResources(pod, container, m.devicesToReuse[string(pod.UID)]); err != nil {
 		return err
 	}
+	m.podDevices.removeContainerAllocatedResources(string(pod.UID), container.Name, m.devicesToReuse[string(pod.UID)])
+	return nil
+
+}
+
+// UpdatePluginResources updates node resources based on devices already allocated to pods.
+func (m *ManagerImpl) UpdatePluginResources(node *schedulerframework.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
+	pod := attrs.Pod
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -393,7 +410,6 @@ func (m *ManagerImpl) Allocate(node *schedulernodeinfo.NodeInfo, attrs *lifecycl
 func (m *ManagerImpl) Register(ctx context.Context, r *pluginapi.RegisterRequest) (*pluginapi.Empty, error) {
 	klog.Infof("Got registration request from device plugin with resource name %q", r.ResourceName)
 	metrics.DevicePluginRegistrationCount.WithLabelValues(r.ResourceName).Inc()
-	metrics.DeprecatedDevicePluginRegistrationCount.WithLabelValues(r.ResourceName).Inc()
 	var versionCompatible bool
 	for _, v := range pluginapi.SupportedVersions {
 		if r.Version == v {
@@ -598,9 +614,9 @@ func (m *ManagerImpl) readCheckpoint() error {
 	return nil
 }
 
-// updateAllocatedDevices gets a list of active pods and then frees any Devices that are bound to
-// terminated pods. Returns error on failure.
-func (m *ManagerImpl) updateAllocatedDevices(activePods []*v1.Pod) {
+// UpdateAllocatedDevices frees any Devices that are bound to terminated pods.
+func (m *ManagerImpl) UpdateAllocatedDevices() {
+	activePods := m.activePods()
 	if !m.sourcesReady.AllReady() {
 		return
 	}
@@ -774,7 +790,7 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 		// Updates allocatedDevices to garbage collect any stranded resources
 		// before doing the device plugin allocation.
 		if !allocatedDevicesUpdated {
-			m.updateAllocatedDevices(m.activePods())
+			m.UpdateAllocatedDevices()
 			allocatedDevicesUpdated = true
 		}
 		allocDevices, err := m.devicesToAllocate(podUID, contName, resource, needed, devicesToReuse[resource])
@@ -789,7 +805,7 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 		// Manager.Allocate involves RPC calls to device plugin, which
 		// could be heavy-weight. Therefore we want to perform this operation outside
 		// mutex lock. Note if Allocate call fails, we may leave container resources
-		// partially allocated for the failed container. We rely on updateAllocatedDevices()
+		// partially allocated for the failed container. We rely on UpdateAllocatedDevices()
 		// to garbage collect these resources later. Another side effect is that if
 		// we have X resource A and Y resource B in total, and two containers, container1
 		// and container2 both require X resource A and Y resource B. Both allocation
@@ -814,7 +830,6 @@ func (m *ManagerImpl) allocateContainerResources(pod *v1.Pod, container *v1.Cont
 		klog.V(3).Infof("Making allocation request for devices %v for device plugin %s", devs, resource)
 		resp, err := eI.e.allocate(devs)
 		metrics.DevicePluginAllocationDuration.WithLabelValues(resource).Observe(metrics.SinceInSeconds(startRPCTime))
-		metrics.DeprecatedDevicePluginAllocationLatency.WithLabelValues(resource).Observe(metrics.SinceInMicroseconds(startRPCTime))
 		if err != nil {
 			// In case of allocation failure, we want to restore m.allocatedDevices
 			// to the actual allocated state from m.podDevices.
@@ -862,8 +877,8 @@ func (m *ManagerImpl) GetDeviceRunContainerOptions(pod *v1.Pod, container *v1.Co
 		}
 	}
 	if needsReAllocate {
-		klog.V(2).Infof("needs re-allocate device plugin resources for pod %s", podUID)
-		if err := m.allocatePodResources(pod); err != nil {
+		klog.V(2).Infof("needs re-allocate device plugin resources for pod %s, container %s", podUID, container.Name)
+		if err := m.Allocate(pod, container); err != nil {
 			return nil, err
 		}
 	}
@@ -909,9 +924,9 @@ func (m *ManagerImpl) callPreStartContainerIfNeeded(podUID, contName, resource s
 // and if necessary, updates allocatableResource in nodeInfo to at least equal to
 // the allocated capacity. This allows pods that have already been scheduled on
 // the node to pass GeneralPredicates admission checking even upon device plugin failure.
-func (m *ManagerImpl) sanitizeNodeAllocatable(node *schedulernodeinfo.NodeInfo) {
-	var newAllocatableResource *schedulernodeinfo.Resource
-	allocatableResource := node.AllocatableResource()
+func (m *ManagerImpl) sanitizeNodeAllocatable(node *schedulerframework.NodeInfo) {
+	var newAllocatableResource *schedulerframework.Resource
+	allocatableResource := node.Allocatable
 	if allocatableResource.ScalarResources == nil {
 		allocatableResource.ScalarResources = make(map[v1.ResourceName]int64)
 	}
@@ -929,7 +944,7 @@ func (m *ManagerImpl) sanitizeNodeAllocatable(node *schedulernodeinfo.NodeInfo) 
 		newAllocatableResource.ScalarResources[v1.ResourceName(resource)] = int64(needed)
 	}
 	if newAllocatableResource != nil {
-		node.SetAllocatableResource(newAllocatableResource)
+		node.Allocatable = newAllocatableResource
 	}
 }
 

@@ -39,6 +39,7 @@ limitations under the License.
 package windows
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -52,6 +53,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	"github.com/onsi/ginkgo"
@@ -77,7 +79,7 @@ const (
 	gmsaWebhookDeployScriptURL = "https://raw.githubusercontent.com/kubernetes-sigs/windows-gmsa/master/admission-webhook/deploy/deploy-gmsa-webhook.sh"
 )
 
-var _ = SIGDescribe("[Feature:Windows] [Feature:WindowsGMSA] GMSA Full [Slow]", func() {
+var _ = SIGDescribe("[Feature:Windows] GMSA Full [Slow]", func() {
 	f := framework.NewDefaultFramework("gmsa-full-test-windows")
 
 	ginkgo.Describe("GMSA support", func() {
@@ -87,7 +89,7 @@ var _ = SIGDescribe("[Feature:Windows] [Feature:WindowsGMSA] GMSA Full [Slow]", 
 			ginkgo.By("finding the worker node that fulfills this test's assumptions")
 			nodes := findPreconfiguredGmsaNodes(f.ClientSet)
 			if len(nodes) != 1 {
-				framework.Skipf("Expected to find exactly one node with the %q label, found %d", gmsaFullNodeLabel, len(nodes))
+				e2eskipper.Skipf("Expected to find exactly one node with the %q label, found %d", gmsaFullNodeLabel, len(nodes))
 			}
 			node := nodes[0]
 
@@ -154,7 +156,7 @@ func findPreconfiguredGmsaNodes(c clientset.Interface) []v1.Node {
 	nodeOpts := metav1.ListOptions{
 		LabelSelector: gmsaFullNodeLabel,
 	}
-	nodes, err := c.CoreV1().Nodes().List(nodeOpts)
+	nodes, err := c.CoreV1().Nodes().List(context.TODO(), nodeOpts)
 	if err != nil {
 		framework.Failf("Unable to list nodes: %v", err)
 	}
@@ -206,9 +208,7 @@ func retrieveCRDManifestFileContents(f *framework.Framework, node v1.Node) strin
 	}
 	f.PodClient().CreateSync(pod)
 
-	// using powershell and using forward slashes avoids the nightmare of having to properly
-	// escape quotes and backward slashes
-	output, err := runKubectlExecInNamespace(f.Namespace.Name, podName, "powershell", "Get-Content", strings.ReplaceAll(gmsaCrdManifestPath, `\`, "/"))
+	output, err := runKubectlExecInNamespace(f.Namespace.Name, podName, "cmd", "/S", "/C", fmt.Sprintf("type %s", gmsaCrdManifestPath))
 	if err != nil {
 		framework.Failf("failed to retrieve the contents of %q on node %q: %v", gmsaCrdManifestPath, node.Name, err)
 	}
@@ -311,10 +311,10 @@ func createRBACRoleForGmsa(f *framework.Framework) (string, func(), error) {
 	}
 
 	cleanUpFunc := func() {
-		f.ClientSet.RbacV1().ClusterRoles().Delete(roleName, &metav1.DeleteOptions{})
+		f.ClientSet.RbacV1().ClusterRoles().Delete(context.TODO(), roleName, metav1.DeleteOptions{})
 	}
 
-	_, err := f.ClientSet.RbacV1().ClusterRoles().Create(role)
+	_, err := f.ClientSet.RbacV1().ClusterRoles().Create(context.TODO(), role, metav1.CreateOptions{})
 	if err != nil {
 		err = errors.Wrapf(err, "unable to create RBAC cluster role %q", roleName)
 	}
@@ -331,7 +331,7 @@ func createServiceAccount(f *framework.Framework) string {
 			Namespace: f.Namespace.Name,
 		},
 	}
-	if _, err := f.ClientSet.CoreV1().ServiceAccounts(f.Namespace.Name).Create(account); err != nil {
+	if _, err := f.ClientSet.CoreV1().ServiceAccounts(f.Namespace.Name).Create(context.TODO(), account, metav1.CreateOptions{}); err != nil {
 		framework.Failf("unable to create service account %q: %v", accountName, err)
 	}
 	return accountName
@@ -357,7 +357,7 @@ func bindRBACRoleToServiceAccount(f *framework.Framework, serviceAccountName, rb
 			Name:     rbacRoleName,
 		},
 	}
-	f.ClientSet.RbacV1().RoleBindings(f.Namespace.Name).Create(binding)
+	f.ClientSet.RbacV1().RoleBindings(f.Namespace.Name).Create(context.TODO(), binding, metav1.CreateOptions{})
 }
 
 // createPodWithGmsa creates a pod using the test GMSA cred spec, and returns its name.

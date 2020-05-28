@@ -18,21 +18,16 @@ package imagelocality
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/informers"
-	clientsetfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/kubernetes/pkg/scheduler/algorithm/priorities"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/migration"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
-	nodeinfosnapshot "k8s.io/kubernetes/pkg/scheduler/nodeinfo/snapshot"
-	"k8s.io/kubernetes/pkg/util/parsers"
+	"k8s.io/kubernetes/pkg/scheduler/internal/cache"
 )
-
-var mb int64 = 1024 * 1024
 
 func TestImageLocalityPriority(t *testing.T) {
 	test40250 := v1.PodSpec{
@@ -73,7 +68,7 @@ func TestImageLocalityPriority(t *testing.T) {
 		Images: []v1.ContainerImage{
 			{
 				Names: []string{
-					"gcr.io/40:" + parsers.DefaultImageTag,
+					"gcr.io/40:latest",
 					"gcr.io/40:v1",
 					"gcr.io/40:v1",
 				},
@@ -81,14 +76,14 @@ func TestImageLocalityPriority(t *testing.T) {
 			},
 			{
 				Names: []string{
-					"gcr.io/300:" + parsers.DefaultImageTag,
+					"gcr.io/300:latest",
 					"gcr.io/300:v1",
 				},
 				SizeBytes: int64(300 * mb),
 			},
 			{
 				Names: []string{
-					"gcr.io/2000:" + parsers.DefaultImageTag,
+					"gcr.io/2000:latest",
 				},
 				SizeBytes: int64(2000 * mb),
 			},
@@ -99,13 +94,13 @@ func TestImageLocalityPriority(t *testing.T) {
 		Images: []v1.ContainerImage{
 			{
 				Names: []string{
-					"gcr.io/250:" + parsers.DefaultImageTag,
+					"gcr.io/250:latest",
 				},
 				SizeBytes: int64(250 * mb),
 			},
 			{
 				Names: []string{
-					"gcr.io/10:" + parsers.DefaultImageTag,
+					"gcr.io/10:latest",
 					"gcr.io/10:v1",
 				},
 				SizeBytes: int64(10 * mb),
@@ -190,22 +185,9 @@ func TestImageLocalityPriority(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := clientsetfake.NewSimpleClientset()
-			informerFactory := informers.NewSharedInformerFactory(client, 0)
-
-			metaDataProducer := priorities.NewMetadataFactory(
-				informerFactory.Core().V1().Services().Lister(),
-				informerFactory.Core().V1().ReplicationControllers().Lister(),
-				informerFactory.Apps().V1().ReplicaSets().Lister(),
-				informerFactory.Apps().V1().StatefulSets().Lister(),
-				1,
-			)
-
-			snapshot := nodeinfosnapshot.NewSnapshot(nodeinfosnapshot.CreateNodeInfoMap(nil, test.nodes))
-			meta := metaDataProducer(test.pod, test.nodes, snapshot)
+			snapshot := cache.NewSnapshot(nil, test.nodes)
 
 			state := framework.NewCycleState()
-			state.Write(migration.PrioritiesStateKey, &migration.PrioritiesStateData{Reference: meta})
 
 			fh, _ := framework.NewFramework(nil, nil, nil, framework.WithSnapshotSharedLister(snapshot))
 
@@ -227,9 +209,34 @@ func TestImageLocalityPriority(t *testing.T) {
 	}
 }
 
+func TestNormalizedImageName(t *testing.T) {
+	for _, testCase := range []struct {
+		Name   string
+		Input  string
+		Output string
+	}{
+		{Name: "add :latest postfix 1", Input: "root", Output: "root:latest"},
+		{Name: "add :latest postfix 2", Input: "gcr.io:5000/root", Output: "gcr.io:5000/root:latest"},
+		{Name: "keep it as is 1", Input: "root:tag", Output: "root:tag"},
+		{Name: "keep it as is 2", Input: "root@" + getImageFakeDigest("root"), Output: "root@" + getImageFakeDigest("root")},
+	} {
+		t.Run(testCase.Name, func(t *testing.T) {
+			image := normalizedImageName(testCase.Input)
+			if image != testCase.Output {
+				t.Errorf("expected image reference: %q, got %q", testCase.Output, image)
+			}
+		})
+	}
+}
+
 func makeImageNode(node string, status v1.NodeStatus) *v1.Node {
 	return &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: node},
 		Status:     status,
 	}
+}
+
+func getImageFakeDigest(fakeContent string) string {
+	hash := sha256.Sum256([]byte(fakeContent))
+	return "sha256:" + hex.EncodeToString(hash[:])
 }

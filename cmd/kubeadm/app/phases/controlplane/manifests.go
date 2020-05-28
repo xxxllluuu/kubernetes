@@ -25,7 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	"k8s.io/kubernetes/cmd/kubeadm/app/features"
@@ -56,10 +56,12 @@ func GetStaticPodSpecs(cfg *kubeadmapi.ClusterConfiguration, endpoint *kubeadmap
 			ImagePullPolicy: v1.PullIfNotPresent,
 			Command:         getAPIServerCommand(cfg, endpoint),
 			VolumeMounts:    staticpodutil.VolumeMountMapToSlice(mounts.GetVolumeMounts(kubeadmconstants.KubeAPIServer)),
-			LivenessProbe:   staticpodutil.LivenessProbe(staticpodutil.GetAPIServerProbeAddress(endpoint), "/healthz", int(endpoint.BindPort), v1.URISchemeHTTPS),
+			LivenessProbe:   staticpodutil.LivenessProbe(staticpodutil.GetAPIServerProbeAddress(endpoint), "/livez", int(endpoint.BindPort), v1.URISchemeHTTPS),
+			ReadinessProbe:  staticpodutil.ReadinessProbe(staticpodutil.GetAPIServerProbeAddress(endpoint), "/readyz", int(endpoint.BindPort), v1.URISchemeHTTPS),
 			Resources:       staticpodutil.ComponentResources("250m"),
 			Env:             kubeadmutil.GetProxyEnvVars(),
-		}, mounts.GetVolumes(kubeadmconstants.KubeAPIServer)),
+		}, mounts.GetVolumes(kubeadmconstants.KubeAPIServer),
+			map[string]string{kubeadmconstants.KubeAPIServerAdvertiseAddressEndpointAnnotationKey: endpoint.String()}),
 		kubeadmconstants.KubeControllerManager: staticpodutil.ComponentPod(v1.Container{
 			Name:            kubeadmconstants.KubeControllerManager,
 			Image:           images.GetKubernetesImage(kubeadmconstants.KubeControllerManager, cfg),
@@ -69,7 +71,7 @@ func GetStaticPodSpecs(cfg *kubeadmapi.ClusterConfiguration, endpoint *kubeadmap
 			LivenessProbe:   staticpodutil.LivenessProbe(staticpodutil.GetControllerManagerProbeAddress(cfg), "/healthz", kubeadmconstants.KubeControllerManagerPort, v1.URISchemeHTTPS),
 			Resources:       staticpodutil.ComponentResources("200m"),
 			Env:             kubeadmutil.GetProxyEnvVars(),
-		}, mounts.GetVolumes(kubeadmconstants.KubeControllerManager)),
+		}, mounts.GetVolumes(kubeadmconstants.KubeControllerManager), nil),
 		kubeadmconstants.KubeScheduler: staticpodutil.ComponentPod(v1.Container{
 			Name:            kubeadmconstants.KubeScheduler,
 			Image:           images.GetKubernetesImage(kubeadmconstants.KubeScheduler, cfg),
@@ -79,7 +81,7 @@ func GetStaticPodSpecs(cfg *kubeadmapi.ClusterConfiguration, endpoint *kubeadmap
 			LivenessProbe:   staticpodutil.LivenessProbe(staticpodutil.GetSchedulerProbeAddress(cfg), "/healthz", kubeadmconstants.KubeSchedulerPort, v1.URISchemeHTTPS),
 			Resources:       staticpodutil.ComponentResources("100m"),
 			Env:             kubeadmutil.GetProxyEnvVars(),
-		}, mounts.GetVolumes(kubeadmconstants.KubeScheduler)),
+		}, mounts.GetVolumes(kubeadmconstants.KubeScheduler), nil),
 	}
 	return staticPodSpecs
 }
@@ -96,6 +98,11 @@ func CreateStaticPodFiles(manifestDir, kustomizeDir string, cfg *kubeadmapi.Clus
 		spec, exists := specs[componentName]
 		if !exists {
 			return errors.Errorf("couldn't retrieve StaticPodSpec for %q", componentName)
+		}
+
+		// print all volumes that are mounted
+		for _, v := range spec.Spec.Volumes {
+			klog.V(2).Infof("[control-plane] adding volume %q for component %q", v.Name, componentName)
 		}
 
 		// if kustomizeDir is defined, customize the static pod manifest
@@ -216,14 +223,29 @@ func getAuthzModes(authzModeExtraArgs string) string {
 
 		// only return the user provided mode if at least one was valid
 		if len(mode) > 0 {
-			klog.Warningf("the default kube-apiserver authorization-mode is %q; using %q",
-				strings.Join(defaultMode, ","),
-				strings.Join(mode, ","),
-			)
+			if !compareAuthzModes(defaultMode, mode) {
+				klog.Warningf("the default kube-apiserver authorization-mode is %q; using %q",
+					strings.Join(defaultMode, ","),
+					strings.Join(mode, ","),
+				)
+			}
 			return strings.Join(mode, ",")
 		}
 	}
 	return strings.Join(defaultMode, ",")
+}
+
+// compareAuthzModes compares two given authz modes and returns false if they do not match
+func compareAuthzModes(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, m := range a {
+		if m != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func isValidAuthzMode(authzMode string) bool {

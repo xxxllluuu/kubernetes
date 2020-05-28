@@ -43,12 +43,12 @@ import (
 	"golang.org/x/oauth2/google"
 	compute "google.golang.org/api/compute/v0.beta"
 	"google.golang.org/api/option"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
 var testArgs = flag.String("test_args", "", "Space-separated list of arguments to pass to Ginkgo test runner.")
-var testSuite = flag.String("test-suite", "default", "Test suite the runner initializes with. Currently support default|conformance")
+var testSuite = flag.String("test-suite", "default", "Test suite the runner initializes with. Currently support default|cadvisor|conformance")
 var instanceNamePrefix = flag.String("instance-name-prefix", "", "prefix for instance names")
 var zone = flag.String("zone", "", "gce zone the hosts live in")
 var project = flag.String("project", "", "gce project the hosts live in")
@@ -196,7 +196,7 @@ func main() {
 		// Use node e2e suite by default if no subcommand is specified.
 		suite = remote.InitNodeE2ERemote()
 	default:
-		klog.Fatalf("--test-suite must be one of default or conformance")
+		klog.Fatalf("--test-suite must be one of default, cadvisor, or conformance")
 	}
 
 	rand.Seed(time.Now().UnixNano())
@@ -623,8 +623,10 @@ func createInstance(imageConfig *internalGCEImage) (string, error) {
 	}
 	i.Scheduling = &scheduling
 	i.Metadata = imageConfig.metadata
+	var insertionOperationName string
 	if _, err := computeService.Instances.Get(*project, *zone, i.Name).Do(); err != nil {
 		op, err := computeService.Instances.Insert(*project, *zone, i).Do()
+
 		if err != nil {
 			ret := fmt.Sprintf("could not create instance %s: API error: %v", name, err)
 			if op != nil {
@@ -632,15 +634,37 @@ func createInstance(imageConfig *internalGCEImage) (string, error) {
 			}
 			return "", fmt.Errorf(ret)
 		} else if op.Error != nil {
-			return "", fmt.Errorf("could not create instance %s: %+v", name, op.Error)
-		}
-	}
+			var errs []string
+			for _, insertErr := range op.Error.Errors {
+				errs = append(errs, fmt.Sprintf("%+v", insertErr))
+			}
+			return "", fmt.Errorf("could not create instance %s: %+v", name, errs)
 
+		}
+		insertionOperationName = op.Name
+	}
 	instanceRunning := false
 	for i := 0; i < 30 && !instanceRunning; i++ {
 		if i > 0 {
 			time.Sleep(time.Second * 20)
 		}
+		var insertionOperation *compute.Operation
+		insertionOperation, err = computeService.ZoneOperations.Get(*project, *zone, insertionOperationName).Do()
+		if err != nil {
+			continue
+		}
+		if strings.ToUpper(insertionOperation.Status) != "DONE" {
+			err = fmt.Errorf("instance insert operation %s not in state DONE, was %s", name, insertionOperation.Status)
+			continue
+		}
+		if insertionOperation.Error != nil {
+			var errs []string
+			for _, insertErr := range insertionOperation.Error.Errors {
+				errs = append(errs, fmt.Sprintf("%+v", insertErr))
+			}
+			return name, fmt.Errorf("could not create instance %s: %+v", name, errs)
+		}
+
 		var instance *compute.Instance
 		instance, err = computeService.Instances.Get(*project, *zone, name).Do()
 		if err != nil {

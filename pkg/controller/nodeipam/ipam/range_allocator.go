@@ -22,7 +22,7 @@ import (
 	"sync"
 
 	"k8s.io/api/core/v1"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -273,7 +273,7 @@ func (r *rangeAllocator) AllocateOrOccupyCIDR(node *v1.Node) error {
 		allocated.allocatedCIDRs[idx] = podCIDR
 	}
 
-	//queue the assignement
+	//queue the assignment
 	klog.V(4).Infof("Putting node %s with CIDR %v into the work queue", node.Name, allocated.allocatedCIDRs)
 	r.nodeCIDRUpdateChannel <- allocated
 	return nil

@@ -17,6 +17,7 @@ limitations under the License.
 package apps
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -32,9 +33,11 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/kubernetes/pkg/master/ports"
+	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2erc "k8s.io/kubernetes/test/e2e/framework/rc"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	e2essh "k8s.io/kubernetes/test/e2e/framework/ssh"
 	testutils "k8s.io/kubernetes/test/utils"
 	imageutils "k8s.io/kubernetes/test/utils/image"
@@ -176,7 +179,7 @@ func replacePods(pods []*v1.Pod, store cache.Store) {
 // and a list of nodenames across which these containers restarted.
 func getContainerRestarts(c clientset.Interface, ns string, labelSelector labels.Selector) (int, []string) {
 	options := metav1.ListOptions{LabelSelector: labelSelector.String()}
-	pods, err := c.CoreV1().Pods(ns).List(options)
+	pods, err := c.CoreV1().Pods(ns).List(context.TODO(), options)
 	framework.ExpectNoError(err)
 	failedContainers := 0
 	containerRestartNodes := sets.NewString()
@@ -204,7 +207,7 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 
 	ginkgo.BeforeEach(func() {
 		// These tests require SSH
-		framework.SkipUnlessProviderIs(framework.ProvidersWithSSH...)
+		e2eskipper.SkipUnlessProviderIs(framework.ProvidersWithSSH...)
 		ns = f.Namespace.Name
 
 		// All the restart tests need an rc and a watch on pods of the rc.
@@ -226,12 +229,12 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 			&cache.ListWatch{
 				ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 					options.LabelSelector = labelSelector.String()
-					obj, err := f.ClientSet.CoreV1().Pods(ns).List(options)
+					obj, err := f.ClientSet.CoreV1().Pods(ns).List(context.TODO(), options)
 					return runtime.Object(obj), err
 				},
 				WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 					options.LabelSelector = labelSelector.String()
-					return f.ClientSet.CoreV1().Pods(ns).Watch(options)
+					return f.ClientSet.CoreV1().Pods(ns).Watch(context.TODO(), options)
 				},
 			},
 			&v1.Pod{},
@@ -258,7 +261,7 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 	ginkgo.It("Controller Manager should not create/delete replicas across restart", func() {
 
 		// Requires master ssh access.
-		framework.SkipUnlessProviderIs("gce", "aws")
+		e2eskipper.SkipUnlessProviderIs("gce", "aws")
 		restarter := NewRestartConfig(
 			framework.GetMasterHost(), "kube-controller", ports.InsecureKubeControllerManagerPort, restartPollInterval, restartTimeout)
 		restarter.restart()
@@ -289,9 +292,9 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 	ginkgo.It("Scheduler should continue assigning pods to nodes across restart", func() {
 
 		// Requires master ssh access.
-		framework.SkipUnlessProviderIs("gce", "aws")
+		e2eskipper.SkipUnlessProviderIs("gce", "aws")
 		restarter := NewRestartConfig(
-			framework.GetMasterHost(), "kube-scheduler", ports.InsecureSchedulerPort, restartPollInterval, restartTimeout)
+			framework.GetMasterHost(), "kube-scheduler", kubeschedulerconfig.DefaultInsecureSchedulerPort, restartPollInterval, restartTimeout)
 
 		// Create pods while the scheduler is down and make sure the scheduler picks them up by
 		// scaling the rc to the same size.
@@ -309,7 +312,6 @@ var _ = SIGDescribe("DaemonRestart [Disruptive]", func() {
 		if err != nil {
 			framework.Logf("Unexpected error occurred: %v", err)
 		}
-		// TODO: write a wrapper for ExpectNoErrorWithOffset()
 		framework.ExpectNoErrorWithOffset(0, err)
 		preRestarts, badNodes := getContainerRestarts(f.ClientSet, ns, labelSelector)
 		if preRestarts != 0 {

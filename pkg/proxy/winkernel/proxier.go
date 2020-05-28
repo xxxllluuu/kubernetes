@@ -32,10 +32,11 @@ import (
 	"github.com/Microsoft/hcsshim/hcn"
 
 	"github.com/davecgh/go-spew/spew"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	genericfeatures "k8s.io/apiserver/pkg/features"
@@ -47,6 +48,7 @@ import (
 	"k8s.io/kubernetes/pkg/proxy/apis/config"
 	proxyconfig "k8s.io/kubernetes/pkg/proxy/config"
 	"k8s.io/kubernetes/pkg/proxy/healthcheck"
+	"k8s.io/kubernetes/pkg/proxy/metrics"
 	"k8s.io/kubernetes/pkg/util/async"
 )
 
@@ -233,14 +235,18 @@ func newServiceInfo(svcPortName proxy.ServicePortName, port *v1.ServicePort, ser
 	if err != nil {
 		preserveDIP = false
 	}
+	// targetPort is zero if it is specified as a name in port.TargetPort.
+	// Its real value would be got later from endpoints.
+	targetPort := 0
+	if port.TargetPort.Type == intstr.Int {
+		targetPort = port.TargetPort.IntValue()
+	}
 	info := &serviceInfo{
-		clusterIP: net.ParseIP(service.Spec.ClusterIP),
-		port:      int(port.Port),
-		protocol:  port.Protocol,
-		nodePort:  int(port.NodePort),
-		// targetPort is zero if it is specified as a name in port.TargetPort.
-		// Its real value would be got later from endpoints.
-		targetPort: port.TargetPort.IntValue(),
+		clusterIP:  net.ParseIP(service.Spec.ClusterIP),
+		port:       int(port.Port),
+		protocol:   port.Protocol,
+		nodePort:   int(port.NodePort),
+		targetPort: targetPort,
 		// Deep-copy in case the service instance changes
 		loadBalancerStatus:       *service.Status.LoadBalancer.DeepCopy(),
 		sessionAffinityType:      service.Spec.SessionAffinity,
@@ -731,6 +737,7 @@ func (proxier *Proxier) Sync() {
 	if proxier.healthzServer != nil {
 		proxier.healthzServer.QueuedUpdate()
 	}
+	metrics.SyncProxyRulesLastQueuedTimestamp.SetToCurrentTime()
 	proxier.syncRunner.Run()
 }
 
@@ -740,6 +747,8 @@ func (proxier *Proxier) SyncLoop() {
 	if proxier.healthzServer != nil {
 		proxier.healthzServer.Updated()
 	}
+	// synthesize "last change queued" time as the informers are syncing.
+	metrics.SyncProxyRulesLastQueuedTimestamp.SetToCurrentTime()
 	proxier.syncRunner.Loop(wait.NeverStop)
 }
 
@@ -755,6 +764,8 @@ func (proxier *Proxier) isInitialized() bool {
 	return atomic.LoadInt32(&proxier.initialized) > 0
 }
 
+// OnServiceAdd is called whenever creation of new service object
+// is observed.
 func (proxier *Proxier) OnServiceAdd(service *v1.Service) {
 	namespacedName := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}
 	if proxier.serviceChanges.update(&namespacedName, nil, service, proxier.hns) && proxier.isInitialized() {
@@ -762,6 +773,8 @@ func (proxier *Proxier) OnServiceAdd(service *v1.Service) {
 	}
 }
 
+// OnServiceUpdate is called whenever modification of an existing
+// service object is observed.
 func (proxier *Proxier) OnServiceUpdate(oldService, service *v1.Service) {
 	namespacedName := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}
 	if proxier.serviceChanges.update(&namespacedName, oldService, service, proxier.hns) && proxier.isInitialized() {
@@ -769,6 +782,8 @@ func (proxier *Proxier) OnServiceUpdate(oldService, service *v1.Service) {
 	}
 }
 
+// OnServiceDelete is called whenever deletion of an existing service
+// object is observed.
 func (proxier *Proxier) OnServiceDelete(service *v1.Service) {
 	namespacedName := types.NamespacedName{Namespace: service.Namespace, Name: service.Name}
 	if proxier.serviceChanges.update(&namespacedName, service, nil, proxier.hns) && proxier.isInitialized() {
@@ -776,6 +791,8 @@ func (proxier *Proxier) OnServiceDelete(service *v1.Service) {
 	}
 }
 
+// OnServiceSynced is called once all the initial event handlers were
+// called and the state is fully propagated to local cache.
 func (proxier *Proxier) OnServiceSynced() {
 	proxier.mu.Lock()
 	proxier.servicesSynced = true
@@ -830,6 +847,8 @@ func (proxier *Proxier) updateServiceMap() (result updateServiceMapResult) {
 	return result
 }
 
+// OnEndpointsAdd is called whenever creation of new endpoints object
+// is observed.
 func (proxier *Proxier) OnEndpointsAdd(endpoints *v1.Endpoints) {
 	namespacedName := types.NamespacedName{Namespace: endpoints.Namespace, Name: endpoints.Name}
 	if proxier.endpointsChanges.update(&namespacedName, nil, endpoints, proxier.hns) && proxier.isInitialized() {
@@ -837,6 +856,8 @@ func (proxier *Proxier) OnEndpointsAdd(endpoints *v1.Endpoints) {
 	}
 }
 
+// OnEndpointsUpdate is called whenever modification of an existing
+// endpoints object is observed.
 func (proxier *Proxier) OnEndpointsUpdate(oldEndpoints, endpoints *v1.Endpoints) {
 	namespacedName := types.NamespacedName{Namespace: endpoints.Namespace, Name: endpoints.Name}
 	if proxier.endpointsChanges.update(&namespacedName, oldEndpoints, endpoints, proxier.hns) && proxier.isInitialized() {
@@ -844,6 +865,8 @@ func (proxier *Proxier) OnEndpointsUpdate(oldEndpoints, endpoints *v1.Endpoints)
 	}
 }
 
+// OnEndpointsDelete is called whenever deletion of an existing endpoints
+// object is observed.
 func (proxier *Proxier) OnEndpointsDelete(endpoints *v1.Endpoints) {
 	namespacedName := types.NamespacedName{Namespace: endpoints.Namespace, Name: endpoints.Name}
 	if proxier.endpointsChanges.update(&namespacedName, endpoints, nil, proxier.hns) && proxier.isInitialized() {
@@ -851,6 +874,8 @@ func (proxier *Proxier) OnEndpointsDelete(endpoints *v1.Endpoints) {
 	}
 }
 
+// OnEndpointsSynced is called once all the initial event handlers were
+// called and the state is fully propagated to local cache.
 func (proxier *Proxier) OnEndpointsSynced() {
 	proxier.mu.Lock()
 	proxier.endpointsSynced = true
@@ -959,7 +984,7 @@ func endpointsToEndpointsMap(endpoints *v1.Endpoints, hostname string, hns HostN
 				epInfo := newEndpointInfo(addr.IP, uint16(port.Port), isLocal, hns)
 				endpointsMap[svcPortName] = append(endpointsMap[svcPortName], epInfo)
 			}
-			if klog.V(3) {
+			if klog.V(3).Enabled() {
 				newEPList := []*endpointsInfo{}
 				for _, ep := range endpointsMap[svcPortName] {
 					newEPList = append(newEPList, ep)
@@ -1000,8 +1025,7 @@ func (proxier *Proxier) syncProxyRules() {
 
 	start := time.Now()
 	defer func() {
-		SyncProxyRulesLatency.Observe(sinceInSeconds(start))
-		DeprecatedSyncProxyRulesLatency.Observe(sinceInMicroseconds(start))
+		SyncProxyRulesLatency.Observe(metrics.SinceInSeconds(start))
 		klog.V(4).Infof("syncProxyRules took %v", time.Since(start))
 	}()
 	// don't sync rules till we've received services and endpoints
@@ -1086,6 +1110,7 @@ func (proxier *Proxier) syncProxyRules() {
 		klog.V(4).Infof("====Applying Policy for %s====", svcName)
 		// Create Remote endpoints for every endpoint, corresponding to the service
 		containsPublicIP := false
+		containsNodeIP := false
 
 		for _, ep := range proxier.endpointsMap[svcName] {
 			var newHnsEndpoint *endpointsInfo
@@ -1136,13 +1161,15 @@ func (proxier *Proxier) syncProxyRules() {
 						}
 						if ep.ip == rs.providerAddress {
 							providerAddress = rs.providerAddress
+							containsNodeIP = true
 						}
 					}
 					if len(providerAddress) == 0 {
-						klog.Errorf("Could not find provider address for %s", ep.ip)
+						klog.Infof("Could not find provider address for %s. Assuming it is a public IP", ep.ip)
 						providerAddress = proxier.nodeIP.String()
 						containsPublicIP = true
 					}
+
 					hnsEndpoint := &endpointsInfo{
 						ip:              ep.ip,
 						isLocal:         false,
@@ -1196,7 +1223,7 @@ func (proxier *Proxier) syncProxyRules() {
 		klog.V(4).Infof("Trying to Apply Policies for service %s", spew.Sdump(svcInfo))
 		var hnsLoadBalancer *loadBalancerInfo
 		var sourceVip = proxier.sourceVip
-		if containsPublicIP {
+		if containsPublicIP || containsNodeIP {
 			sourceVip = proxier.nodeIP.String()
 		}
 		hnsLoadBalancer, err := hns.getLoadBalancer(

@@ -302,7 +302,6 @@ type PersistentVolumeSpec struct {
 	MountOptions []string
 	// volumeMode defines if a volume is intended to be used with a formatted filesystem
 	// or to remain in raw block state. Value of Filesystem is implied when not included in spec.
-	// This is a beta feature.
 	// +optional
 	VolumeMode *PersistentVolumeMode
 	// NodeAffinity defines constraints that limit what nodes this volume can be accessed from.
@@ -416,17 +415,17 @@ type PersistentVolumeClaimSpec struct {
 	StorageClassName *string
 	// volumeMode defines what type of volume is required by the claim.
 	// Value of Filesystem is implied when not included in claim spec.
-	// This is a beta feature.
 	// +optional
 	VolumeMode *PersistentVolumeMode
 	// This field can be used to specify either:
-	// * An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)
+	// * An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot - Beta)
 	// * An existing PVC (PersistentVolumeClaim)
-	// In order to use either of these DataSource types, the appropriate feature gate
-	// must be enabled (VolumeSnapshotDataSource, VolumePVCDataSource)
-	// If the provisioner can support the specified data source, it will create
-	// a new volume based on the contents of the specified PVC or Snapshot.
-	// If the provisioner does not support the specified data source, the volume will
+	// * An existing custom resource/object that implements data population (Alpha)
+	// In order to use VolumeSnapshot object types, the appropriate feature gate
+	// must be enabled (VolumeSnapshotDataSource or AnyVolumeDataSource)
+	// If the provisioner or an external controller can support the specified data source,
+	// it will create a new volume based on the contents of the specified data source.
+	// If the specified data source is not supported, the volume will
 	// not be created and the failure will be reported as an event.
 	// In the future, we plan to support more data source types and the behavior
 	// of the provisioner may change.
@@ -583,9 +582,10 @@ type StorageMedium string
 
 // These are the valid value for StorageMedium
 const (
-	StorageMediumDefault   StorageMedium = ""          // use whatever the default is for the node
-	StorageMediumMemory    StorageMedium = "Memory"    // use memory (tmpfs)
-	StorageMediumHugePages StorageMedium = "HugePages" // use hugepages
+	StorageMediumDefault         StorageMedium = ""           // use whatever the default is for the node
+	StorageMediumMemory          StorageMedium = "Memory"     // use memory (tmpfs)
+	StorageMediumHugePages       StorageMedium = "HugePages"  // use hugepages
+	StorageMediumHugePagesPrefix StorageMedium = "HugePages-" // prefix for full medium notation HugePages-<size>
 )
 
 // Protocol defines network protocols supported for things like container ports.
@@ -1774,7 +1774,7 @@ type EnvVar struct {
 // EnvVarSource represents a source for the value of an EnvVar.
 // Only one of its fields may be set.
 type EnvVarSource struct {
-	// Selects a field of the pod: supports metadata.name, metadata.namespace, metadata.labels, metadata.annotations,
+	// Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
 	// metadata.uid, spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
 	// +optional
 	FieldRef *ObjectFieldSelector
@@ -2056,7 +2056,6 @@ type Container struct {
 	// +optional
 	VolumeMounts []VolumeMount
 	// volumeDevices is the list of block devices to be used by the container.
-	// This is a beta feature.
 	// +optional
 	VolumeDevices []VolumeDevice
 	// +optional
@@ -2765,8 +2764,7 @@ type PodSpec struct {
 	EnableServiceLinks *bool
 	// TopologySpreadConstraints describes how a group of pods ought to spread across topology
 	// domains. Scheduler will schedule pods in a way which abides by the constraints.
-	// This field is alpha-level and is only honored by clusters that enables the EvenPodsSpread
-	// feature.
+	// This field is only honored by clusters that enable the EvenPodsSpread feature.
 	// All topologySpreadConstraints are ANDed.
 	// +optional
 	TopologySpreadConstraints []TopologySpreadConstraint
@@ -2786,6 +2784,22 @@ type Sysctl struct {
 	// Value of a property to set
 	Value string
 }
+
+// PodFSGroupChangePolicy holds policies that will be used for applying fsGroup to a volume
+// when volume is mounted.
+type PodFSGroupChangePolicy string
+
+const (
+	// FSGroupChangeOnRootMismatch indicates that volume's ownership and permissions will be changed
+	// only when permission and ownership of root directory does not match with expected
+	// permissions on the volume. This can help shorten the time it takes to change
+	// ownership and permissions of a volume.
+	FSGroupChangeOnRootMismatch PodFSGroupChangePolicy = "OnRootMismatch"
+	// FSGroupChangeAlways indicates that volume's ownership and permissions
+	// should always be changed whenever volume is mounted inside a Pod. This the default
+	// behavior.
+	FSGroupChangeAlways PodFSGroupChangePolicy = "Always"
+)
 
 // PodSecurityContext holds pod-level security attributes and common container settings.
 // Some fields are also present in container.securityContext.  Field values of
@@ -2866,6 +2880,14 @@ type PodSecurityContext struct {
 	// If unset, the Kubelet will not modify the ownership and permissions of any volume.
 	// +optional
 	FSGroup *int64
+	// fsGroupChangePolicy defines behavior of changing ownership and permission of the volume
+	// before being exposed inside Pod. This field will only apply to
+	// volume types which support fsGroup based ownership(and permissions).
+	// It will have no effect on ephemeral volume types such as: secret, configmaps
+	// and emptydir.
+	// Valid values are "OnRootMismatch" and "Always". If not specified defaults to "Always".
+	// +optional
+	FSGroupChangePolicy *PodFSGroupChangePolicy
 	// Sysctls hold a list of namespaced sysctls used for the pod. Pods with unsupported
 	// sysctls (by the container runtime) might fail to launch.
 	// +optional
@@ -2969,7 +2991,6 @@ type EphemeralContainerCommon struct {
 	// +optional
 	VolumeMounts []VolumeMount
 	// volumeDevices is the list of block devices to be used by the container.
-	// This is a beta feature.
 	// +optional
 	VolumeDevices []VolumeDevice
 	// Probes are not allowed for ephemeral containers.
@@ -3533,6 +3554,17 @@ type ServicePort struct {
 	// The IP protocol for this port.  Supports "TCP", "UDP", and "SCTP".
 	Protocol Protocol
 
+	// The application protocol for this port.
+	// This field follows standard Kubernetes label syntax.
+	// Un-prefixed names are reserved for IANA standard service names (as per
+	// RFC-6335 and http://www.iana.org/assignments/service-names).
+	// Non-standard protocols should use prefixed names such as
+	// mycompany.com/my-custom-protocol.
+	// This is a beta field that is guarded by the ServiceAppProtocol feature
+	// gate and enabled by default.
+	// +optional
+	AppProtocol *string
+
 	// The port that will be exposed on the service.
 	Port int32
 
@@ -3673,6 +3705,17 @@ type EndpointPort struct {
 
 	// The IP protocol for this port.
 	Protocol Protocol
+
+	// The application protocol for this port.
+	// This field follows standard Kubernetes label syntax.
+	// Un-prefixed names are reserved for IANA standard service names (as per
+	// RFC-6335 and http://www.iana.org/assignments/service-names).
+	// Non-standard protocols should use prefixed names such as
+	// mycompany.com/my-custom-protocol.
+	// This is a beta field that is guarded by the ServiceAppProtocol feature
+	// gate and enabled by default.
+	// +optional
+	AppProtocol *string
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -3775,7 +3818,7 @@ type NodeSystemInfo struct {
 	MachineID string
 	// SystemUUID reported by the node. For unique machine identification
 	// MachineID is preferred. This field is specific to Red Hat hosts
-	// https://access.redhat.com/documentation/en-US/Red_Hat_Subscription_Management/1/html/RHSM/getting-system-uuid.html
+	// https://access.redhat.com/documentation/en-us/red_hat_subscription_management/1/html/rhsm/uuid
 	SystemUUID string
 	// Boot ID reported by the node.
 	BootID string
@@ -3996,7 +4039,7 @@ type NodeAddress struct {
 }
 
 // NodeResources is an object for conveying resource information about a node.
-// see http://releases.k8s.io/HEAD/docs/design/resources.md for more details.
+// see https://kubernetes.io/docs/concepts/architecture/nodes/#capacity for more details.
 type NodeResources struct {
 	// Capacity represents the available resources of a node
 	// +optional
@@ -4209,7 +4252,7 @@ type PodLogOptions struct {
 	// If this value is in the future, no logs will be returned.
 	// Only one of sinceSeconds or sinceTime may be specified.
 	SinceTime *metav1.Time
-	// If true, add an RFC3339 or RFC3339Nano timestamp at the beginning of every line
+	// If true, add an RFC 3339 timestamp with 9 digits of fractional seconds at the beginning of every line
 	// of log output.
 	Timestamps bool
 	// If set, the number of lines from the end of the logs to show. If not specified,
@@ -4478,20 +4521,7 @@ type EventSeries struct {
 	Count int32
 	// Time of the last occurrence observed
 	LastObservedTime metav1.MicroTime
-	// State of this Series: Ongoing or Finished
-	// Deprecated. Planned removal for 1.18
-	State EventSeriesState
 }
-
-// EventSeriesState defines the state of event series
-type EventSeriesState string
-
-// These are valid values of event series state
-const (
-	EventSeriesStateOngoing  EventSeriesState = "Ongoing"
-	EventSeriesStateFinished EventSeriesState = "Finished"
-	EventSeriesStateUnknown  EventSeriesState = "Unknown"
-)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
@@ -4735,6 +4765,12 @@ type Secret struct {
 	// +optional
 	metav1.ObjectMeta
 
+	// Immutable field, if set, ensures that data stored in the Secret cannot
+	// be updated (only object metadata can be modified).
+	// This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
+	// +optional
+	Immutable *bool
+
 	// Data contains the secret data. Each key must consist of alphanumeric
 	// characters, '-', '_' or '.'. The serialized form of the secret data is a
 	// base64 encoded string, representing the arbitrary (possibly non-string)
@@ -4856,6 +4892,12 @@ type ConfigMap struct {
 	metav1.TypeMeta
 	// +optional
 	metav1.ObjectMeta
+
+	// Immutable field, if set, ensures that data stored in the ConfigMap cannot
+	// be updated (only object metadata can be modified).
+	// This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
+	// +optional
+	Immutable *bool
 
 	// Data contains the configuration data.
 	// Each key must consist of alphanumeric characters, '-', '_' or '.'.
@@ -5064,14 +5106,12 @@ type SELinuxOptions struct {
 // WindowsSecurityContextOptions contain Windows-specific options and credentials.
 type WindowsSecurityContextOptions struct {
 	// GMSACredentialSpecName is the name of the GMSA credential spec to use.
-	// This field is alpha-level and is only honored by servers that enable the WindowsGMSA feature flag.
 	// +optional
 	GMSACredentialSpecName *string
 
 	// GMSACredentialSpec is where the GMSA admission webhook
 	// (https://github.com/kubernetes-sigs/windows-gmsa) inlines the contents of the
 	// GMSA credential spec named by the GMSACredentialSpecName field.
-	// This field is alpha-level and is only honored by servers that enable the WindowsGMSA feature flag.
 	// +optional
 	GMSACredentialSpec *string
 
@@ -5079,7 +5119,6 @@ type WindowsSecurityContextOptions struct {
 	// Defaults to the user specified in image metadata if unspecified.
 	// May also be set in PodSecurityContext. If set in both SecurityContext and
 	// PodSecurityContext, the value specified in SecurityContext takes precedence.
-	// This field is beta-level and may be disabled with the WindowsRunAsUserName feature flag.
 	// +optional
 	RunAsUserName *string
 }
@@ -5137,8 +5176,8 @@ const (
 // TopologySpreadConstraint specifies how to spread matching pods among the given topology.
 type TopologySpreadConstraint struct {
 	// MaxSkew describes the degree to which pods may be unevenly distributed.
-	// It's the maximum permitted difference between the number of matching pods in
-	// any two topology domains of a given topology type.
+	// When `whenUnsatisfiable=DoNotSchedule`, it is the maximum permitted difference
+	// between the number of matching pods in the target topology and the global minimum.
 	// For example, in a 3-zone cluster, MaxSkew is set to 1, and pods with the same
 	// labelSelector spread as 1/1/0:
 	// +-------+-------+-------+
@@ -5150,6 +5189,8 @@ type TopologySpreadConstraint struct {
 	// scheduling it onto zone1(zone2) would make the ActualSkew(2-0) on zone1(zone2)
 	// violate MaxSkew(1).
 	// - if MaxSkew is 2, incoming pod can be scheduled onto any zone.
+	// When `whenUnsatisfiable=ScheduleAnyway`, it is used to give higher precedence
+	// to topologies that satisfy it.
 	// It's a required field. Default value is 1 and 0 is not allowed.
 	MaxSkew int32
 	// TopologyKey is the key of node labels. Nodes that have a label with this key
@@ -5160,10 +5201,13 @@ type TopologySpreadConstraint struct {
 	TopologyKey string
 	// WhenUnsatisfiable indicates how to deal with a pod if it doesn't satisfy
 	// the spread constraint.
-	// - DoNotSchedule (default) tells the scheduler not to schedule it
-	// - ScheduleAnyway tells the scheduler to still schedule it
-	// It's considered as "Unsatisfiable" if and only if placing incoming pod on any
-	// topology violates "MaxSkew".
+	// - DoNotSchedule (default) tells the scheduler not to schedule it.
+	// - ScheduleAnyway tells the scheduler to schedule the pod in any location,
+	//   but giving higher precedence to topologies that would help reduce the
+	//   skew.
+	// A constraint is considered "Unsatisfiable" for an incoming pod
+	// if and only if every possible node assigment for that pod would violate
+	// "MaxSkew" on some topology.
 	// For example, in a 3-zone cluster, MaxSkew is set to 1, and pods with the same
 	// labelSelector spread as 3/1/1:
 	// +-------+-------+-------+

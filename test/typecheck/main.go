@@ -82,6 +82,9 @@ var (
 		// edit/record.go doesn't compile without gopkg.in/yaml.v2
 		// in $GOSRC/$GOROOT (both typecheck and the shell script).
 		"pkg/kubectl/cmd/testdata/edit",
+		// Tools we use for maintaining the code base but not necessarily
+		// ship as part of the release
+		"hack/tools",
 	}
 )
 
@@ -104,6 +107,9 @@ func newAnalyzer(platform string) *analyzer {
 		tagsSplit := strings.Split(*tags, ",")
 		ctx.BuildTags = append(ctx.BuildTags, tagsSplit...)
 	}
+
+	// add selinux tag explicitly
+	ctx.BuildTags = append(ctx.BuildTags, "selinux")
 
 	a := &analyzer{
 		platform:  platform,

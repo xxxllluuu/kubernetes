@@ -32,7 +32,7 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/cgroups/fs"
 	"github.com/opencontainers/runc/libcontainer/configs"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	utilio "k8s.io/utils/io"
 	"k8s.io/utils/mount"
 	utilpath "k8s.io/utils/path"
@@ -49,6 +49,7 @@ import (
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	podresourcesapi "k8s.io/kubernetes/pkg/kubelet/apis/podresources/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
+	"k8s.io/kubernetes/pkg/kubelet/cm/containermap"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager"
 	cputopology "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager"
@@ -61,7 +62,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/qos"
 	"k8s.io/kubernetes/pkg/kubelet/stats/pidlimit"
 	"k8s.io/kubernetes/pkg/kubelet/status"
-	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
+	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	"k8s.io/kubernetes/pkg/util/oom"
 	"k8s.io/kubernetes/pkg/util/procfs"
 	utilsysctl "k8s.io/kubernetes/pkg/util/sysctl"
@@ -158,6 +159,11 @@ func validateSystemRequirements(mountUtil mount.Interface) (features, error) {
 	mountPoints, err := mountUtil.List()
 	if err != nil {
 		return f, fmt.Errorf("%s - %v", localErr, err)
+	}
+
+	if cgroups.IsCgroup2UnifiedMode() {
+		f.cpuHardcapping = true
+		return f, nil
 	}
 
 	expectedCgroups := sets.NewString("cpu", "cpuacct", "cpuset", "memory")
@@ -574,7 +580,14 @@ func (cm *containerManagerImpl) Start(node *v1.Node,
 
 	// Initialize CPU manager
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.CPUManager) {
-		cm.cpuManager.Start(cpumanager.ActivePodsFunc(activePods), sourcesReady, podStatusProvider, runtimeService)
+		containerMap, err := buildContainerMapFromRuntime(runtimeService)
+		if err != nil {
+			return fmt.Errorf("failed to build map of initial containers from runtime: %v", err)
+		}
+		err = cm.cpuManager.Start(cpumanager.ActivePodsFunc(activePods), sourcesReady, podStatusProvider, runtimeService, containerMap)
+		if err != nil {
+			return fmt.Errorf("start cpu manager error: %v", err)
+		}
 	}
 
 	// cache the node Info including resource capacity and
@@ -663,12 +676,54 @@ func (cm *containerManagerImpl) GetResources(pod *v1.Pod, container *v1.Containe
 	return opts, nil
 }
 
-func (cm *containerManagerImpl) UpdatePluginResources(node *schedulernodeinfo.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
-	return cm.deviceManager.Allocate(node, attrs)
+func (cm *containerManagerImpl) UpdatePluginResources(node *schedulerframework.NodeInfo, attrs *lifecycle.PodAdmitAttributes) error {
+	return cm.deviceManager.UpdatePluginResources(node, attrs)
 }
 
-func (cm *containerManagerImpl) GetTopologyPodAdmitHandler() topologymanager.Manager {
-	return cm.topologyManager
+func (cm *containerManagerImpl) GetAllocateResourcesPodAdmitHandler() lifecycle.PodAdmitHandler {
+	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.TopologyManager) {
+		return cm.topologyManager
+	}
+	// TODO: we need to think about a better way to do this. This will work for
+	// now so long as we have only the cpuManager and deviceManager relying on
+	// allocations here. However, going forward it is not generalized enough to
+	// work as we add more and more hint providers that the TopologyManager
+	// needs to call Allocate() on (that may not be directly intstantiated
+	// inside this component).
+	return &resourceAllocator{cm.cpuManager, cm.deviceManager}
+}
+
+type resourceAllocator struct {
+	cpuManager    cpumanager.Manager
+	deviceManager devicemanager.Manager
+}
+
+func (m *resourceAllocator) Admit(attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitResult {
+	pod := attrs.Pod
+
+	for _, container := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		err := m.deviceManager.Allocate(pod, &container)
+		if err != nil {
+			return lifecycle.PodAdmitResult{
+				Message: fmt.Sprintf("Allocate failed due to %v, which is unexpected", err),
+				Reason:  "UnexpectedAdmissionError",
+				Admit:   false,
+			}
+		}
+
+		if m.cpuManager != nil {
+			err = m.cpuManager.Allocate(pod, &container)
+			if err != nil {
+				return lifecycle.PodAdmitResult{
+					Message: fmt.Sprintf("Allocate failed due to %v, which is unexpected", err),
+					Reason:  "UnexpectedAdmissionError",
+					Admit:   false,
+				}
+			}
+		}
+	}
+
+	return lifecycle.PodAdmitResult{Admit: true}
 }
 
 func (cm *containerManagerImpl) SystemCgroupsLimit() v1.ResourceList {
@@ -684,6 +739,25 @@ func (cm *containerManagerImpl) SystemCgroupsLimit() v1.ResourceList {
 			cpuLimit,
 			resource.DecimalSI),
 	}
+}
+
+func buildContainerMapFromRuntime(runtimeService internalapi.RuntimeService) (containermap.ContainerMap, error) {
+	podSandboxMap := make(map[string]string)
+	podSandboxList, _ := runtimeService.ListPodSandbox(nil)
+	for _, p := range podSandboxList {
+		podSandboxMap[p.Id] = p.Metadata.Uid
+	}
+
+	containerMap := containermap.NewContainerMap()
+	containerList, _ := runtimeService.ListContainers(nil)
+	for _, c := range containerList {
+		if _, exists := podSandboxMap[c.PodSandboxId]; !exists {
+			return nil, fmt.Errorf("no PodsandBox found with Id '%s'", c.PodSandboxId)
+		}
+		containerMap.Add(podSandboxMap[c.PodSandboxId], c.Metadata.Name, c.Id)
+	}
+
+	return containerMap, nil
 }
 
 func isProcessRunningInHost(pid int) (bool, error) {
@@ -815,6 +889,11 @@ func getContainer(pid int) (string, error) {
 		return "", err
 	}
 
+	if cgroups.IsCgroup2UnifiedMode() {
+		c, _ := cgs[""]
+		return c, nil
+	}
+
 	cpu, found := cgs["cpu"]
 	if !found {
 		return "", cgroups.NewNotFoundError("cpu")
@@ -918,4 +997,8 @@ func (cm *containerManagerImpl) GetDevices(podUID, containerName string) []*podr
 
 func (cm *containerManagerImpl) ShouldResetExtendedResourceCapacity() bool {
 	return cm.deviceManager.ShouldResetExtendedResourceCapacity()
+}
+
+func (cm *containerManagerImpl) UpdateAllocatedDevices() {
+	cm.deviceManager.UpdateAllocatedDevices()
 }

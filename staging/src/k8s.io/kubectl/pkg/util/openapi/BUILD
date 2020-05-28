@@ -4,7 +4,6 @@ go_library(
     name = "go_default_library",
     srcs = [
         "doc.go",
-        "dryrun.go",
         "extensions.go",
         "openapi.go",
         "openapi_getter.go",
@@ -16,8 +15,7 @@ go_library(
         "//staging/src/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
         "//staging/src/k8s.io/client-go/discovery:go_default_library",
         "//vendor/github.com/go-openapi/spec:go_default_library",
-        "//vendor/github.com/googleapis/gnostic/OpenAPIv2:go_default_library",
-        "//vendor/gopkg.in/yaml.v2:go_default_library",
+        "//vendor/github.com/googleapis/gnostic/openapiv2:go_default_library",
         "//vendor/k8s.io/kube-openapi/pkg/util/proto:go_default_library",
     ],
 )
@@ -25,7 +23,6 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
-        "dryrun_test.go",
         "openapi_getter_test.go",
         "openapi_suite_test.go",
         "openapi_test.go",
@@ -34,7 +31,7 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//staging/src/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
-        "//vendor/github.com/googleapis/gnostic/OpenAPIv2:go_default_library",
+        "//vendor/github.com/googleapis/gnostic/openapiv2:go_default_library",
         "//vendor/github.com/onsi/ginkgo:go_default_library",
         "//vendor/github.com/onsi/ginkgo/config:go_default_library",
         "//vendor/github.com/onsi/ginkgo/types:go_default_library",

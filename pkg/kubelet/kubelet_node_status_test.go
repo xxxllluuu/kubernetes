@@ -17,6 +17,7 @@ limitations under the License.
 package kubelet
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -48,7 +49,6 @@ import (
 	"k8s.io/client-go/rest"
 	core "k8s.io/client-go/testing"
 	"k8s.io/component-base/version"
-	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 	cadvisortest "k8s.io/kubernetes/pkg/kubelet/cadvisor/testing"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
@@ -223,7 +223,7 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 							Type:               v1.NodeMemoryPressure,
 							Status:             v1.ConditionFalse,
 							Reason:             "KubeletHasSufficientMemory",
-							Message:            fmt.Sprintf("kubelet has sufficient memory available"),
+							Message:            "kubelet has sufficient memory available",
 							LastHeartbeatTime:  metav1.Time{},
 							LastTransitionTime: metav1.Time{},
 						},
@@ -231,7 +231,7 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 							Type:               v1.NodeDiskPressure,
 							Status:             v1.ConditionFalse,
 							Reason:             "KubeletHasNoDiskPressure",
-							Message:            fmt.Sprintf("kubelet has no disk pressure"),
+							Message:            "kubelet has no disk pressure",
 							LastHeartbeatTime:  metav1.Time{},
 							LastTransitionTime: metav1.Time{},
 						},
@@ -239,7 +239,7 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 							Type:               v1.NodePIDPressure,
 							Status:             v1.ConditionFalse,
 							Reason:             "KubeletHasSufficientPID",
-							Message:            fmt.Sprintf("kubelet has sufficient PID available"),
+							Message:            "kubelet has sufficient PID available",
 							LastHeartbeatTime:  metav1.Time{},
 							LastTransitionTime: metav1.Time{},
 						},
@@ -247,7 +247,7 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 							Type:               v1.NodeReady,
 							Status:             v1.ConditionTrue,
 							Reason:             "KubeletReady",
-							Message:            fmt.Sprintf("kubelet is posting ready status"),
+							Message:            "kubelet is posting ready status",
 							LastHeartbeatTime:  metav1.Time{},
 							LastTransitionTime: metav1.Time{},
 						},
@@ -678,7 +678,7 @@ func TestUpdateNodeStatusWithRuntimeStateError(t *testing.T) {
 		require.True(t, actions[1].Matches("patch", "nodes"))
 		require.Equal(t, actions[1].GetSubresource(), "status")
 
-		updatedNode, err := kubeClient.CoreV1().Nodes().Get(testKubeletHostname, metav1.GetOptions{})
+		updatedNode, err := kubeClient.CoreV1().Nodes().Get(context.TODO(), testKubeletHostname, metav1.GetOptions{})
 		require.NoError(t, err, "can't apply node status patch")
 
 		for i, cond := range updatedNode.Status.Conditions {
@@ -1130,11 +1130,9 @@ func TestRegisterWithApiServer(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: testKubeletHostname,
 				Labels: map[string]string{
-					v1.LabelHostname:      testKubeletHostname,
-					v1.LabelOSStable:      goruntime.GOOS,
-					v1.LabelArchStable:    goruntime.GOARCH,
-					kubeletapis.LabelOS:   goruntime.GOOS,
-					kubeletapis.LabelArch: goruntime.GOARCH,
+					v1.LabelHostname:   testKubeletHostname,
+					v1.LabelOSStable:   goruntime.GOOS,
+					v1.LabelArchStable: goruntime.GOARCH,
 				},
 			},
 		}, nil
@@ -1177,11 +1175,9 @@ func TestTryRegisterWithApiServer(t *testing.T) {
 		node := &v1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{
-					v1.LabelHostname:      testKubeletHostname,
-					v1.LabelOSStable:      goruntime.GOOS,
-					v1.LabelArchStable:    goruntime.GOARCH,
-					kubeletapis.LabelOS:   goruntime.GOOS,
-					kubeletapis.LabelArch: goruntime.GOARCH,
+					v1.LabelHostname:   testKubeletHostname,
+					v1.LabelOSStable:   goruntime.GOOS,
+					v1.LabelArchStable: goruntime.GOARCH,
 				},
 			},
 		}
@@ -1416,8 +1412,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1435,8 +1431,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 			},
 		},
 		{
@@ -1451,8 +1447,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1466,8 +1462,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "old-zone-region",
 						v1.LabelInstanceTypeStable:      "old-instance-type",
 						v1.LabelInstanceType:            "old-instance-type",
-						kubeletapis.LabelOS:             "old-os",
-						kubeletapis.LabelArch:           "old-arch",
+						v1.LabelOSStable:                "old-os",
+						v1.LabelArchStable:              "old-arch",
 					},
 				},
 			},
@@ -1480,8 +1476,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 			},
 		},
 		{
@@ -1496,8 +1492,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1511,8 +1507,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 						"please-persist":                "foo",
 					},
 				},
@@ -1526,8 +1522,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 				"please-persist":                "foo",
 			},
 		},
@@ -1548,8 +1544,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 						"please-persist":                "foo",
 					},
 				},
@@ -1563,8 +1559,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 				"please-persist":                "foo",
 			},
 		},
@@ -1580,8 +1576,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1595,8 +1591,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1609,8 +1605,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 			},
 		},
 		{
@@ -1625,8 +1621,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
+						v1.LabelOSStable:                "new-os",
+						v1.LabelArchStable:              "new-arch",
 					},
 				},
 			},
@@ -1642,8 +1638,8 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
+				v1.LabelOSStable:                "new-os",
+				v1.LabelArchStable:              "new-arch",
 			},
 		},
 		{
@@ -1658,8 +1654,6 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneRegion:              "new-zone-region",
 						v1.LabelInstanceTypeStable:      "new-instance-type",
 						v1.LabelInstanceType:            "new-instance-type",
-						kubeletapis.LabelOS:             "new-os",
-						kubeletapis.LabelArch:           "new-arch",
 						v1.LabelOSStable:                "new-os",
 						v1.LabelArchStable:              "new-arch",
 					},
@@ -1672,8 +1666,6 @@ func TestUpdateDefaultLabels(t *testing.T) {
 						v1.LabelZoneFailureDomain: "new-zone-failure-domain",
 						v1.LabelZoneRegion:        "new-zone-region",
 						v1.LabelInstanceType:      "new-instance-type",
-						kubeletapis.LabelOS:       "new-os",
-						kubeletapis.LabelArch:     "new-arch",
 					},
 				},
 			},
@@ -1686,8 +1678,6 @@ func TestUpdateDefaultLabels(t *testing.T) {
 				v1.LabelZoneRegion:              "new-zone-region",
 				v1.LabelInstanceTypeStable:      "new-instance-type",
 				v1.LabelInstanceType:            "new-instance-type",
-				kubeletapis.LabelOS:             "new-os",
-				kubeletapis.LabelArch:           "new-arch",
 				v1.LabelOSStable:                "new-os",
 				v1.LabelArchStable:              "new-arch",
 			},
@@ -2263,7 +2253,7 @@ func TestUpdateNodeAddresses(t *testing.T) {
 				},
 			}
 
-			_, err := kubeClient.CoreV1().Nodes().Update(oldNode)
+			_, err := kubeClient.CoreV1().Nodes().Update(context.TODO(), oldNode, metav1.UpdateOptions{})
 			assert.NoError(t, err)
 			kubelet.setNodeStatusFuncs = []func(*v1.Node) error{
 				func(node *v1.Node) error {

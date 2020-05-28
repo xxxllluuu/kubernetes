@@ -23,7 +23,7 @@ import (
 
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/install"
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	_ "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -35,7 +35,6 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/controller/nonstructuralschema"
 	openapicontroller "k8s.io/apiextensions-apiserver/pkg/controller/openapi"
 	"k8s.io/apiextensions-apiserver/pkg/controller/status"
-	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
 	"k8s.io/apiextensions-apiserver/pkg/registry/customresourcedefinition"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,7 +47,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	serverstorage "k8s.io/apiserver/pkg/server/storage"
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/util/webhook"
 )
 
@@ -144,16 +142,22 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	if apiResourceConfig.VersionEnabled(v1beta1.SchemeGroupVersion) {
 		storage := map[string]rest.Storage{}
 		// customresourcedefinitions
-		customResourceDefintionStorage := customresourcedefinition.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
-		storage["customresourcedefinitions"] = customResourceDefintionStorage
-		storage["customresourcedefinitions/status"] = customresourcedefinition.NewStatusREST(Scheme, customResourceDefintionStorage)
+		customResourceDefinitionStorage, err := customresourcedefinition.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+		if err != nil {
+			return nil, err
+		}
+		storage["customresourcedefinitions"] = customResourceDefinitionStorage
+		storage["customresourcedefinitions/status"] = customresourcedefinition.NewStatusREST(Scheme, customResourceDefinitionStorage)
 
 		apiGroupInfo.VersionedResourcesStorageMap[v1beta1.SchemeGroupVersion.Version] = storage
 	}
 	if apiResourceConfig.VersionEnabled(v1.SchemeGroupVersion) {
 		storage := map[string]rest.Storage{}
 		// customresourcedefinitions
-		customResourceDefintionStorage := customresourcedefinition.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+		customResourceDefintionStorage, err := customresourcedefinition.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+		if err != nil {
+			return nil, err
+		}
 		storage["customresourcedefinitions"] = customResourceDefintionStorage
 		storage["customresourcedefinitions/status"] = customresourcedefinition.NewStatusREST(Scheme, customResourceDefintionStorage)
 
@@ -209,7 +213,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 	s.GenericAPIServer.Handler.NonGoRestfulMux.Handle("/apis", crdHandler)
 	s.GenericAPIServer.Handler.NonGoRestfulMux.HandlePrefix("/apis/", crdHandler)
 
-	crdController := NewDiscoveryController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), versionDiscoveryHandler, groupDiscoveryHandler)
+	discoveryController := NewDiscoveryController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), versionDiscoveryHandler, groupDiscoveryHandler)
 	namingController := status.NewNamingConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	nonStructuralSchemaController := nonstructuralschema.NewConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
 	apiApprovalController := apiapproval.NewKubernetesAPIApprovalPolicyConformantConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
@@ -218,10 +222,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		crdClient.ApiextensionsV1(),
 		crdHandler,
 	)
-	var openapiController *openapicontroller.Controller
-	if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourcePublishOpenAPI) {
-		openapiController = openapicontroller.NewController(s.Informers.Apiextensions().V1().CustomResourceDefinitions())
-	}
+	openapiController := openapicontroller.NewController(s.Informers.Apiextensions().V1().CustomResourceDefinitions())
 
 	s.GenericAPIServer.AddPostStartHookOrDie("start-apiextensions-informers", func(context genericapiserver.PostStartHookContext) error {
 		s.Informers.Start(context.StopCh)
@@ -232,16 +233,23 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		// Together they serve the /openapi/v2 endpoint on a generic apiserver. A generic apiserver may
 		// choose to not enable OpenAPI by having null openAPIConfig, and thus OpenAPIVersionedService
 		// and StaticOpenAPISpec are both null. In that case we don't run the CRD OpenAPI controller.
-		if utilfeature.DefaultFeatureGate.Enabled(apiextensionsfeatures.CustomResourcePublishOpenAPI) && s.GenericAPIServer.OpenAPIVersionedService != nil && s.GenericAPIServer.StaticOpenAPISpec != nil {
+		if s.GenericAPIServer.OpenAPIVersionedService != nil && s.GenericAPIServer.StaticOpenAPISpec != nil {
 			go openapiController.Run(s.GenericAPIServer.StaticOpenAPISpec, s.GenericAPIServer.OpenAPIVersionedService, context.StopCh)
 		}
 
-		go crdController.Run(context.StopCh)
 		go namingController.Run(context.StopCh)
 		go establishingController.Run(context.StopCh)
 		go nonStructuralSchemaController.Run(5, context.StopCh)
 		go apiApprovalController.Run(5, context.StopCh)
 		go finalizingController.Run(5, context.StopCh)
+
+		discoverySyncedCh := make(chan struct{})
+		go discoveryController.Run(context.StopCh, discoverySyncedCh)
+		select {
+		case <-context.StopCh:
+		case <-discoverySyncedCh:
+		}
+
 		return nil
 	})
 	// we don't want to report healthy until we can handle all CRDs that have already been registered.  Waiting for the informer

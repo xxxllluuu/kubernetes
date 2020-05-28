@@ -20,10 +20,11 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
@@ -58,8 +59,11 @@ type NodeAuthorizer struct {
 	features featuregate.FeatureGate
 }
 
+var _ = authorizer.Authorizer(&NodeAuthorizer{})
+var _ = authorizer.RuleResolver(&NodeAuthorizer{})
+
 // NewAuthorizer returns a new node authorizer
-func NewAuthorizer(graph *Graph, identifier nodeidentifier.NodeIdentifier, rules []rbacv1.PolicyRule) authorizer.Authorizer {
+func NewAuthorizer(graph *Graph, identifier nodeidentifier.NodeIdentifier, rules []rbacv1.PolicyRule) *NodeAuthorizer {
 	return &NodeAuthorizer{
 		graph:      graph,
 		identifier: identifier,
@@ -78,6 +82,14 @@ var (
 	leaseResource     = coordapi.Resource("leases")
 	csiNodeResource   = storageapi.Resource("csinodes")
 )
+
+func (r *NodeAuthorizer) RulesFor(user user.Info, namespace string) ([]authorizer.ResourceRuleInfo, []authorizer.NonResourceRuleInfo, bool, error) {
+	if _, isNode := r.identifier.NodeIdentity(user); isNode {
+		// indicate nodes do not have fully enumerated permissions
+		return nil, nil, true, fmt.Errorf("node authorizer does not support user rule resolution")
+	}
+	return nil, nil, false, nil
+}
 
 func (r *NodeAuthorizer) Authorize(ctx context.Context, attrs authorizer.Attributes) (authorizer.Decision, string, error) {
 	nodeName, isNode := r.identifier.NodeIdentity(attrs.GetUser())
@@ -167,10 +179,14 @@ func (r *NodeAuthorizer) authorizeGet(nodeName string, startingType vertexType, 
 // authorizeReadNamespacedObject authorizes "get", "list" and "watch" requests to single objects of a
 // specified types if they are related to the specified node.
 func (r *NodeAuthorizer) authorizeReadNamespacedObject(nodeName string, startingType vertexType, attrs authorizer.Attributes) (authorizer.Decision, string, error) {
-	if attrs.GetVerb() != "get" && attrs.GetVerb() != "list" && attrs.GetVerb() != "watch" {
+	switch attrs.GetVerb() {
+	case "get", "list", "watch":
+		//ok
+	default:
 		klog.V(2).Infof("NODE DENY: %s %#v", nodeName, attrs)
 		return authorizer.DecisionNoOpinion, "can only read resources of this type", nil
 	}
+
 	if len(attrs.GetSubresource()) > 0 {
 		klog.V(2).Infof("NODE DENY: %s %#v", nodeName, attrs)
 		return authorizer.DecisionNoOpinion, "cannot read subresource", nil
@@ -229,11 +245,10 @@ func (r *NodeAuthorizer) authorizeCreateToken(nodeName string, startingType vert
 func (r *NodeAuthorizer) authorizeLease(nodeName string, attrs authorizer.Attributes) (authorizer.Decision, string, error) {
 	// allowed verbs: get, create, update, patch, delete
 	verb := attrs.GetVerb()
-	if verb != "get" &&
-		verb != "create" &&
-		verb != "update" &&
-		verb != "patch" &&
-		verb != "delete" {
+	switch verb {
+	case "get", "create", "update", "patch", "delete":
+		//ok
+	default:
 		klog.V(2).Infof("NODE DENY: %s %#v", nodeName, attrs)
 		return authorizer.DecisionNoOpinion, "can only get, create, update, patch, or delete a node lease", nil
 	}
@@ -259,11 +274,10 @@ func (r *NodeAuthorizer) authorizeLease(nodeName string, attrs authorizer.Attrib
 func (r *NodeAuthorizer) authorizeCSINode(nodeName string, attrs authorizer.Attributes) (authorizer.Decision, string, error) {
 	// allowed verbs: get, create, update, patch, delete
 	verb := attrs.GetVerb()
-	if verb != "get" &&
-		verb != "create" &&
-		verb != "update" &&
-		verb != "patch" &&
-		verb != "delete" {
+	switch verb {
+	case "get", "create", "update", "patch", "delete":
+		//ok
+	default:
 		klog.V(2).Infof("NODE DENY: %s %#v", nodeName, attrs)
 		return authorizer.DecisionNoOpinion, "can only get, create, update, patch, or delete a CSINode", nil
 	}

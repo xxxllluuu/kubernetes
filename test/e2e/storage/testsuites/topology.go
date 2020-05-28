@@ -19,6 +19,7 @@ limitations under the License.
 package testsuites
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 
@@ -32,6 +33,7 @@ import (
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2epv "k8s.io/kubernetes/test/e2e/framework/pv"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 )
 
@@ -88,11 +90,11 @@ func (t *topologyTestSuite) DefineTests(driver TestDriver, pattern testpatterns.
 		ok := false
 		dDriver, ok = driver.(DynamicPVTestDriver)
 		if !ok {
-			framework.Skipf("Driver %s doesn't support %v -- skipping", dInfo.Name, pattern.VolType)
+			e2eskipper.Skipf("Driver %s doesn't support %v -- skipping", dInfo.Name, pattern.VolType)
 		}
 
 		if !dInfo.Capabilities[CapTopology] {
-			framework.Skipf("Driver %q does not support topology - skipping", dInfo.Name)
+			e2eskipper.Skipf("Driver %q does not support topology - skipping", dInfo.Name)
 		}
 
 	})
@@ -119,7 +121,7 @@ func (t *topologyTestSuite) DefineTests(driver TestDriver, pattern testpatterns.
 		cs = f.ClientSet
 		keys := dInfo.TopologyKeys
 		if len(keys) == 0 {
-			framework.Skipf("Driver didn't provide topology keys -- skipping")
+			e2eskipper.Skipf("Driver didn't provide topology keys -- skipping")
 		}
 		if dInfo.NumAllowedTopologies == 0 {
 			// Any plugin that supports topology defaults to 1 topology
@@ -130,7 +132,7 @@ func (t *topologyTestSuite) DefineTests(driver TestDriver, pattern testpatterns.
 		l.allTopologies, err = t.getCurrentTopologies(cs, keys, dInfo.NumAllowedTopologies+1)
 		framework.ExpectNoError(err, "failed to get current driver topologies")
 		if len(l.allTopologies) < dInfo.NumAllowedTopologies {
-			framework.Skipf("Not enough topologies in cluster -- skipping")
+			e2eskipper.Skipf("Not enough topologies in cluster -- skipping")
 		}
 
 		l.resource.Sc = dDriver.GetDynamicProvisionStorageClass(l.config, pattern.FsType)
@@ -178,10 +180,10 @@ func (t *topologyTestSuite) DefineTests(driver TestDriver, pattern testpatterns.
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Verifying pod scheduled to correct node")
-		pod, err := cs.CoreV1().Pods(l.pod.Namespace).Get(l.pod.Name, metav1.GetOptions{})
+		pod, err := cs.CoreV1().Pods(l.pod.Namespace).Get(context.TODO(), l.pod.Name, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 
-		node, err := cs.CoreV1().Nodes().Get(pod.Spec.NodeName, metav1.GetOptions{})
+		node, err := cs.CoreV1().Nodes().Get(context.TODO(), pod.Spec.NodeName, metav1.GetOptions{})
 		framework.ExpectNoError(err)
 
 		t.verifyNodeTopology(node, allowedTopologies)
@@ -194,7 +196,7 @@ func (t *topologyTestSuite) DefineTests(driver TestDriver, pattern testpatterns.
 		}()
 
 		if len(l.allTopologies) < dInfo.NumAllowedTopologies+1 {
-			framework.Skipf("Not enough topologies in cluster -- skipping")
+			e2eskipper.Skipf("Not enough topologies in cluster -- skipping")
 		}
 
 		// Exclude one topology
@@ -323,25 +325,23 @@ func (t *topologyTestSuite) createResources(cs clientset.Interface, l *topologyT
 	framework.Logf("Creating storage class object and pvc object for driver - sc: %v, pvc: %v", l.resource.Sc, l.resource.Pvc)
 
 	ginkgo.By("Creating sc")
-	l.resource.Sc, err = cs.StorageV1().StorageClasses().Create(l.resource.Sc)
+	l.resource.Sc, err = cs.StorageV1().StorageClasses().Create(context.TODO(), l.resource.Sc, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
 	ginkgo.By("Creating pvc")
-	l.resource.Pvc, err = cs.CoreV1().PersistentVolumeClaims(l.resource.Pvc.Namespace).Create(l.resource.Pvc)
+	l.resource.Pvc, err = cs.CoreV1().PersistentVolumeClaims(l.resource.Pvc.Namespace).Create(context.TODO(), l.resource.Pvc, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 
 	ginkgo.By("Creating pod")
-	l.pod = e2epod.MakeSecPod(l.config.Framework.Namespace.Name,
-		[]*v1.PersistentVolumeClaim{l.resource.Pvc},
-		nil,
-		false,
-		"",
-		false,
-		false,
-		e2epv.SELinuxLabel,
-		nil)
-	l.pod.Spec.Affinity = affinity
-	l.pod, err = cs.CoreV1().Pods(l.pod.Namespace).Create(l.pod)
+	podConfig := e2epod.Config{
+		NS:            l.config.Framework.Namespace.Name,
+		PVCs:          []*v1.PersistentVolumeClaim{l.resource.Pvc},
+		SeLinuxLabel:  e2epv.SELinuxLabel,
+		NodeSelection: e2epod.NodeSelection{Affinity: affinity},
+	}
+	l.pod, err = e2epod.MakeSecPod(&podConfig)
+	framework.ExpectNoError(err)
+	l.pod, err = cs.CoreV1().Pods(l.pod.Namespace).Create(context.TODO(), l.pod, metav1.CreateOptions{})
 	framework.ExpectNoError(err)
 }
 

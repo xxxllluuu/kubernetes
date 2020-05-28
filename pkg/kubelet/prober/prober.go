@@ -39,7 +39,7 @@ import (
 	tcpprobe "k8s.io/kubernetes/pkg/probe/tcp"
 	"k8s.io/utils/exec"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 const maxProbeRetries = 3
@@ -80,6 +80,20 @@ func newProber(
 	}
 }
 
+// recordContainerEvent should be used by the prober for all container related events.
+func (pb *prober) recordContainerEvent(pod *v1.Pod, container *v1.Container, containerID kubecontainer.ContainerID, eventType, reason, message string, args ...interface{}) {
+	var err error
+	ref, hasRef := pb.refManager.GetRef(containerID)
+	if !hasRef {
+		ref, err = kubecontainer.GenerateContainerRef(pod, container)
+		if err != nil {
+			klog.Errorf("Can't make a ref to pod %q, container %v: %v", format.Pod(pod), container.Name, err)
+			return
+		}
+	}
+	pb.recorder.Eventf(ref, eventType, reason, message, args...)
+}
+
 // probe probes the container.
 func (pb *prober) probe(probeType probeType, pod *v1.Pod, status v1.PodStatus, container v1.Container, containerID kubecontainer.ContainerID) (results.Result, error) {
 	var probeSpec *v1.Probe
@@ -103,27 +117,17 @@ func (pb *prober) probe(probeType probeType, pod *v1.Pod, status v1.PodStatus, c
 	result, output, err := pb.runProbeWithRetries(probeType, probeSpec, pod, status, container, containerID, maxProbeRetries)
 	if err != nil || (result != probe.Success && result != probe.Warning) {
 		// Probe failed in one way or another.
-		ref, hasRef := pb.refManager.GetRef(containerID)
-		if !hasRef {
-			klog.Warningf("No ref for container %q (%s)", containerID.String(), ctrName)
-		}
 		if err != nil {
 			klog.V(1).Infof("%s probe for %q errored: %v", probeType, ctrName, err)
-			if hasRef {
-				pb.recorder.Eventf(ref, v1.EventTypeWarning, events.ContainerUnhealthy, "%s probe errored: %v", probeType, err)
-			}
+			pb.recordContainerEvent(pod, &container, containerID, v1.EventTypeWarning, events.ContainerUnhealthy, "%s probe errored: %v", probeType, err)
 		} else { // result != probe.Success
 			klog.V(1).Infof("%s probe for %q failed (%v): %s", probeType, ctrName, result, output)
-			if hasRef {
-				pb.recorder.Eventf(ref, v1.EventTypeWarning, events.ContainerUnhealthy, "%s probe failed: %s", probeType, output)
-			}
+			pb.recordContainerEvent(pod, &container, containerID, v1.EventTypeWarning, events.ContainerUnhealthy, "%s probe failed: %v", probeType, output)
 		}
 		return results.Failure, err
 	}
 	if result == probe.Warning {
-		if ref, hasRef := pb.refManager.GetRef(containerID); hasRef {
-			pb.recorder.Eventf(ref, v1.EventTypeWarning, events.ContainerProbeWarning, "%s probe warning: %s", probeType, output)
-		}
+		pb.recordContainerEvent(pod, &container, containerID, v1.EventTypeWarning, events.ContainerProbeWarning, "%s probe warning: %v", probeType, output)
 		klog.V(3).Infof("%s probe for %q succeeded with a warning: %s", probeType, ctrName, output)
 	} else {
 		klog.V(3).Infof("%s probe for %q succeeded", probeType, ctrName)
@@ -159,7 +163,7 @@ func buildHeader(headerList []v1.HTTPHeader) http.Header {
 func (pb *prober) runProbe(probeType probeType, p *v1.Probe, pod *v1.Pod, status v1.PodStatus, container v1.Container, containerID kubecontainer.ContainerID) (probe.Result, string, error) {
 	timeout := time.Duration(p.TimeoutSeconds) * time.Second
 	if p.Exec != nil {
-		klog.V(4).Infof("Exec-Probe Pod: %v, Container: %v, Command: %v", pod, container, p.Exec.Command)
+		klog.V(4).Infof("Exec-Probe Pod: %v, Container: %v, Command: %v", pod.Name, container.Name, p.Exec.Command)
 		command := kubecontainer.ExpandContainerCommandOnlyStatic(p.Exec.Command, container.Env)
 		return pb.exec.Probe(pb.newExecInContainer(container, containerID, command, timeout))
 	}

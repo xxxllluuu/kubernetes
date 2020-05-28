@@ -38,13 +38,11 @@ var (
 		[]string{"verb", "url"},
 	)
 
-	// deprecatedRequestLatency is deprecated, please use requestLatency.
-	deprecatedRequestLatency = k8smetrics.NewHistogramVec(
+	rateLimiterLatency = k8smetrics.NewHistogramVec(
 		&k8smetrics.HistogramOpts{
-			Name:              "rest_client_request_latency_seconds",
-			Help:              "Request latency in seconds. Broken down by verb and URL.",
-			Buckets:           k8smetrics.ExponentialBuckets(0.001, 2, 10),
-			DeprecatedVersion: "1.14.0",
+			Name:    "rest_client_rate_limiter_duration_seconds",
+			Help:    "Client side rate limiter latency in seconds. Broken down by verb and URL.",
+			Buckets: k8smetrics.ExponentialBuckets(0.001, 2, 10),
 		},
 		[]string{"verb", "url"},
 	)
@@ -110,26 +108,24 @@ var (
 func init() {
 
 	legacyregistry.MustRegister(requestLatency)
-	legacyregistry.MustRegister(deprecatedRequestLatency)
 	legacyregistry.MustRegister(requestResult)
 	legacyregistry.RawMustRegister(execPluginCertTTL)
 	legacyregistry.MustRegister(execPluginCertRotation)
 	metrics.Register(metrics.RegisterOpts{
 		ClientCertExpiry:      execPluginCertTTLAdapter,
 		ClientCertRotationAge: &rotationAdapter{m: execPluginCertRotation},
-		RequestLatency:        &latencyAdapter{m: requestLatency, dm: deprecatedRequestLatency},
+		RequestLatency:        &latencyAdapter{m: requestLatency},
+		RateLimiterLatency:    &latencyAdapter{m: rateLimiterLatency},
 		RequestResult:         &resultAdapter{requestResult},
 	})
 }
 
 type latencyAdapter struct {
-	m  *k8smetrics.HistogramVec
-	dm *k8smetrics.HistogramVec
+	m *k8smetrics.HistogramVec
 }
 
 func (l *latencyAdapter) Observe(verb string, u url.URL, latency time.Duration) {
 	l.m.WithLabelValues(verb, u.String()).Observe(latency.Seconds())
-	l.dm.WithLabelValues(verb, u.String()).Observe(latency.Seconds())
 }
 
 type resultAdapter struct {

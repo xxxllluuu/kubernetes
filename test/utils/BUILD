@@ -39,6 +39,7 @@ go_library(
         "//staging/src/k8s.io/api/auditregistration/v1alpha1:go_default_library",
         "//staging/src/k8s.io/api/batch/v1:go_default_library",
         "//staging/src/k8s.io/api/core/v1:go_default_library",
+        "//staging/src/k8s.io/api/storage/v1:go_default_library",
         "//staging/src/k8s.io/api/storage/v1beta1:go_default_library",
         "//staging/src/k8s.io/apimachinery/pkg/api/equality:go_default_library",
         "//staging/src/k8s.io/apimachinery/pkg/api/errors:go_default_library",
@@ -69,7 +70,7 @@ go_library(
         "//vendor/github.com/davecgh/go-spew/spew:go_default_library",
         "//vendor/github.com/pkg/errors:go_default_library",
         "//vendor/github.com/stretchr/testify/require:go_default_library",
-        "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/k8s.io/klog/v2:go_default_library",
     ],
 )
 
